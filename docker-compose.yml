@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  # Servicio Backend Node.js / Express
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: innovatec-backend
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+      - MONGO_URI=${MONGO_URI}
+      - JWT_SECRET=${JWT_SECRET:-innova_jwt_secret_2026}
+      - ENABLE_BATCH_PROCESSING=true
+      - ML_SERVICE_URL=http://ml-service:8000
+    depends_on:
+      - ml-service
+
+  # Servicio de Machine Learning (FastAPI / Python)
+  ml-service:
+    build:
+      context: ./backend/ml-service
+      dockerfile: Dockerfile
+    container_name: innovatec-ml-service
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - ML_PORT=8000
+      - ML_HOST=0.0.0.0
+      - MONGO_URI=${MONGO_URI}
+
+  # Panel de Administración Web (Vite + React / Nginx)
+  panel-admin:
+    build:
+      context: ./gestory/project
+      dockerfile: Dockerfile
+    container_name: innovatec-panel-admin
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend

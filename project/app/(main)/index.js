@@ -1,13 +1,13 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { View, StyleSheet, Text, Dimensions, Alert, ScrollView, Animated, Image, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import MapView, { Marker, Polyline, Polygon } from 'react-native-maps';
+import MapView, { Marker, Polyline, Polygon, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
 import edificios from '../../assets/geo/Edificios.json';
 import caminos from '../../assets/geo/caminos.json';
 import entradas from '../../assets/geo/Entradas.json';
 import perimetroCampus from '../../assets/geo/PerimetroCampus.json';
-import { buildGraph, findRoute } from '../../src/core/utils/graphUtils';
+import { buildGraph, findRoute, findNearestNode } from '../../src/core/utils/graphUtils';
 
 import MapHeader from '../../src/presentation/components/MapHeader';
 import SearchBar from '../../src/presentation/components/SearchBar';
@@ -17,15 +17,25 @@ import { serviceContainer } from '../../src/infrastructure/di/ServiceContainer';
 import { COLORS } from '../../src/core/constants/colors';
 import { DIMENSIONS } from '../../src/core/constants/dimensions';
 import { useTheme } from '../../src/core/context/ThemeContext';
-import { School, X, Calendar } from 'lucide-react-native';
+import { School, X, Calendar, LocateFixed } from 'lucide-react-native';
 
 const { width, height } = Dimensions.get('window');
-const LATITUDE_DELTA = 0.01;
+const LATITUDE_DELTA = 0.005;
 const LONGITUDE_DELTA = LATITUDE_DELTA * (width / height);
 const windowHeight = Dimensions.get('window').height;
 
+const INITIAL_CAMPUS_REGION = {
+  latitude: 19.4074,
+  longitude: -98.1198,
+  latitudeDelta: LATITUDE_DELTA,
+  longitudeDelta: LONGITUDE_DELTA,
+};
+
 export default function MapScreen() {
   const { theme } = useTheme();
+  const mapRef = useRef(null);
+  const locationSubscriptionRef = useRef(null);
+
   const [buildings, setBuildings] = useState([]);
   const [events, setEvents] = useState([]);
   const [selectedBuilding, setSelectedBuilding] = useState(null);
@@ -33,7 +43,6 @@ export default function MapScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredBuildings, setFilteredBuildings] = useState([]);
   const [geojsonLines, setGeojsonLines] = useState([]);
-  const [mapRegion, setMapRegion] = useState(null);
   const [routePath, setRoutePath] = useState([]);
   const [graph, setGraph] = useState({});
   const [nodeCoords, setNodeCoords] = useState({});
@@ -46,9 +55,6 @@ export default function MapScreen() {
   const eventUseCases = serviceContainer.get('eventUseCases');
   const buildingUseCases = serviceContainer.get('buildingUseCases');
   const panelAnimation = useRef(new Animated.Value(0)).current;
-
-  const buildingAccessibleIcon = require('../../assets/icons/a_building.png');
-  const buildingNormalIcon = require('../../assets/icons/n_building.png');
 
   useEffect(() => {
     Animated.timing(panelAnimation, {
@@ -72,8 +78,13 @@ export default function MapScreen() {
     loadInitialData();
     requestLocationPermission();
     processGeoJSON();
-  }, []);
 
+    return () => {
+      if (locationSubscriptionRef.current) {
+        locationSubscriptionRef.current.remove();
+      }
+    };
+  }, []);
 
   useEffect(() => {
     filterBuildings();
@@ -88,9 +99,9 @@ export default function MapScreen() {
 
       // Combinar entradas y caminos para construir el grafo de navegación
       const allFeatures = [...entradas.features, ...caminos.features];
-      const { graph, nodeCoords } = buildGraph(allFeatures);
-      setGraph(graph);
-      setNodeCoords(nodeCoords);
+      const { graph: builtGraph, nodeCoords: builtNodeCoords } = buildGraph(allFeatures);
+      setGraph(builtGraph);
+      setNodeCoords(builtNodeCoords);
 
       // Obtener edificios desde MongoDB
       const dbBuildings = await buildingUseCases.getAllBuildings();
@@ -156,18 +167,6 @@ export default function MapScreen() {
 
       setGeojsonLines(lines);
       console.log(`✅ ${lines.length} líneas de caminos cargadas`);
-
-      // Establecer región del mapa
-      if (geoBuildings.length > 0) {
-        const centro = geoBuildings[0].coordinates;
-        setMapRegion({
-          latitude: centro.latitude,
-          longitude: centro.longitude,
-          latitudeDelta: LATITUDE_DELTA,
-          longitudeDelta: LONGITUDE_DELTA,
-        });
-        console.log('✅ Región del mapa establecida');
-      }
     } catch (err) {
       console.error('❌ Error procesando GeoJSON:', err);
       Alert.alert('Error', 'No se pudieron cargar los datos del mapa');
@@ -186,45 +185,8 @@ export default function MapScreen() {
     }
   };
 
-  const handleRegionChangeComplete = (region) => {
-    // Límites estrictos del campus
-    const minLat = 19.4058;
-    const maxLat = 19.4112;
-    const minLng = -98.1242;
-    const maxLng = -98.1174;
-
-    let adjustedLat = region.latitude;
-    let adjustedLng = region.longitude;
-    let needsAdjustment = false;
-
-    if (region.latitude < minLat) {
-      adjustedLat = minLat;
-      needsAdjustment = true;
-    } else if (region.latitude > maxLat) {
-      adjustedLat = maxLat;
-      needsAdjustment = true;
-    }
-
-    if (region.longitude < minLng) {
-      adjustedLng = minLng;
-      needsAdjustment = true;
-    } else if (region.longitude > maxLng) {
-      adjustedLng = maxLng;
-      needsAdjustment = true;
-    }
-
-    if (needsAdjustment) {
-      setMapRegion({
-        ...region,
-        latitude: adjustedLat,
-        longitude: adjustedLng,
-      });
-    } else {
-      setMapRegion(region);
-    }
-  };
-
   const isPointInPolygon = (point, polygon) => {
+    if (!point || !polygon || polygon.length === 0) return false;
     const x = point.longitude;
     const y = point.latitude;
     
@@ -242,43 +204,69 @@ export default function MapScreen() {
   };
 
   const requestLocationPermission = async () => {
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status === 'granted') {
-      const location = await Location.getCurrentPositionAsync({});
-      const currentCoords = {
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-      };
-      
-      const campusPolygon = perimetroCampus.features[0].geometry.coordinates;
-      const inside = isPointInPolygon(currentCoords, campusPolygon);
-      
-      setIsInsideCampus(inside);
-      
-      if (inside) {
-        setUserLocation(currentCoords);
-        setIsSimulatedUser(false);
-      } else {
-        // Coordenadas exactas de la Entrada Principal EP-003
-        const entradaPrincipalCoords = {
-          latitude: 19.40719130839912,
-          longitude: -98.12107448617152,
-        };
-        setUserLocation(entradaPrincipalCoords);
-        setIsSimulatedUser(true);
-        Alert.alert(
-          'Geofencing Activo 🔒',
-          'Te encuentras fuera del campus de INNOVATEC. Para tu comodidad y evaluación ante el jurado, se ha activado la simulación GPS situándote en la Entrada Principal del plantel.'
-        );
-      }
-    } else {
-      // Coordenadas de contingencia/simulación si se niega el permiso
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      const campusPolygon = perimetroCampus.features[0]?.geometry?.coordinates || [];
       const entradaPrincipalCoords = {
         latitude: 19.40719130839912,
         longitude: -98.12107448617152,
       };
-      setUserLocation(entradaPrincipalCoords);
-      setIsSimulatedUser(true);
+
+      if (status === 'granted') {
+        const location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        const currentCoords = {
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+        };
+        
+        const inside = isPointInPolygon(currentCoords, campusPolygon);
+        setIsInsideCampus(inside);
+        
+        if (inside) {
+          setUserLocation(currentCoords);
+          setIsSimulatedUser(false);
+        } else {
+          setUserLocation(entradaPrincipalCoords);
+          setIsSimulatedUser(true);
+          Alert.alert(
+            'Geofencing Activo 🔒',
+            'Te encuentras fuera del campus de INNOVATEC. Para tu comodidad y evaluación, se ha activado la simulación situándote en la Entrada Principal del plantel.'
+          );
+        }
+
+        // Iniciar suscripción en tiempo real para cuando el usuario se desplace
+        if (locationSubscriptionRef.current) {
+          locationSubscriptionRef.current.remove();
+        }
+
+        locationSubscriptionRef.current = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.High,
+            timeInterval: 3000,
+            distanceInterval: 2,
+          },
+          (loc) => {
+            const liveCoords = {
+              latitude: loc.coords.latitude,
+              longitude: loc.coords.longitude,
+            };
+            const liveInside = isPointInPolygon(liveCoords, campusPolygon);
+            if (liveInside) {
+              setUserLocation(liveCoords);
+              setIsInsideCampus(true);
+              setIsSimulatedUser(false);
+            }
+          }
+        );
+      } else {
+        setUserLocation(entradaPrincipalCoords);
+        setIsInsideCampus(false);
+        setIsSimulatedUser(true);
+      }
+    } catch (err) {
+      console.warn('Error en geolocalización:', err);
     }
   };
 
@@ -294,42 +282,6 @@ export default function MapScreen() {
     setFilteredBuildings(filtered);
   };
 
-  const handleMarkerPress = (building) => {
-    setSelectedBuilding(building);
-    if (!building.entradaId) {
-      console.warn(`🚪 Edificio ${building.name} no tiene entradaId asignado`);
-      return;
-    }
-
-    const entrada = entradas.features.find(
-      f => f.properties.id === building.entradaId && f.properties.tipo === 'ENTRADA_EDIFICIO'
-    );
-
-    if (!entrada) {
-      console.warn(`🚪 Entrada no encontrada para edificio ${building.id} con entradaId ${building.entradaId}`);
-      return;
-    }
-
-    const destinoId = entrada.properties.id;
-    const path = findRoute(graph, 'EP-003', destinoId, nodeCoords);
-
-    if (path) {
-      const coords = path.map(id => nodeCoords[id]).filter(Boolean);
-      setRoutePath(coords);
-    } else {
-      console.warn('⚠️ No se encontró ruta hacia', destinoId);
-    }
-  };
-
-  const calculateCenter = (coordinates) => {
-    const lats = coordinates.map(c => c.latitude);
-    const lngs = coordinates.map(c => c.longitude);
-    return {
-      latitude: (Math.min(...lats) + Math.max(...lats)) / 2,
-      longitude: (Math.min(...lngs) + Math.max(...lngs)) / 2,
-    };
-  };
-
   const calculateCenterFromPolygon = (polygonCoords) => {
     const lats = polygonCoords.map(c => c[1]);
     const lngs = polygonCoords.map(c => c[0]);
@@ -339,7 +291,68 @@ export default function MapScreen() {
     };
   };
 
-  const handleSearch = (query, filters) => {
+  /**
+   * Calcula la ruta dinámicamente desde la ubicación actual del usuario hacia el edificio objetivo
+   */
+  const calculateAndSetRoute = useCallback((targetBuilding, customStartCoords = null) => {
+    if (!targetBuilding) return;
+    setSelectedBuilding(targetBuilding);
+
+    if (!targetBuilding.entradaId) {
+      console.warn(`🚪 Edificio ${targetBuilding.name} no tiene entradaId asignado`);
+      return;
+    }
+
+    const entrada = entradas.features.find(
+      f => f.properties.id === targetBuilding.entradaId && f.properties.tipo === 'ENTRADA_EDIFICIO'
+    );
+
+    if (!entrada) {
+      console.warn(`🚪 Entrada no encontrada para edificio ${targetBuilding.id} (${targetBuilding.entradaId})`);
+      return;
+    }
+
+    const destinoId = entrada.properties.id;
+
+    // 1. Determinar el punto de partida dinámico (ubicación GPS actual del usuario o simulación)
+    const startCoords = customStartCoords || userLocation || nodeCoords['EP-003'] || {
+      latitude: 19.40719130839912,
+      longitude: -98.12107448617152,
+    };
+
+    // 2. Encontrar el nodo más cercano en la red de caminos del campus
+    const startNodeId = findNearestNode(startCoords, nodeCoords, graph) || 'EP-003';
+
+    // 3. Calcular la ruta óptima mediante Dijkstra
+    const path = findRoute(graph, startNodeId, destinoId, nodeCoords);
+
+    if (path && path.length > 0) {
+      const pathCoords = path.map(id => nodeCoords[id]).filter(Boolean);
+      // Conectar visualmente la ubicación exacta de inicio a la red de caminos
+      const fullRoute = [startCoords, ...pathCoords];
+      setRoutePath(fullRoute);
+
+      // Centrar suavemente la cámara en el objetivo
+      if (mapRef.current) {
+        mapRef.current.animateToRegion({
+          latitude: targetBuilding.coordinates.latitude,
+          longitude: targetBuilding.coordinates.longitude,
+          latitudeDelta: 0.003,
+          longitudeDelta: 0.003,
+        }, 500);
+      }
+    } else {
+      console.warn('⚠️ No se encontró ruta hacia', destinoId);
+      Alert.alert('Ruta', `No se encontró una ruta transitable hacia ${targetBuilding.name}`);
+      setRoutePath([]);
+    }
+  }, [userLocation, nodeCoords, graph]);
+
+  const handleMarkerPress = (building) => {
+    calculateAndSetRoute(building);
+  };
+
+  const handleSearch = (query) => {
     setSearchQuery(query);
 
     const target = buildings.find(b =>
@@ -347,35 +360,10 @@ export default function MapScreen() {
     );
 
     if (!target) {
-      console.warn('🏠 Edificio no encontrado');
       return;
     }
 
-    const entradaId = target.entradaId;
-    if (!entradaId) {
-      console.warn('❌ Edificio encontrado, pero sin entrada asignada');
-      return;
-    }
-
-    const entrada = entradas.features.find(
-      f => f.properties.id === entradaId && f.properties.tipo === 'ENTRADA_EDIFICIO'
-    );
-
-    if (!entrada) {
-      console.warn(`🚪 Entrada no encontrada para edificio ${entradaId}`);
-      return;
-    }
-
-    const destinoId = entrada.properties.id;
-    const path = findRoute(graph, 'EP-003', destinoId, nodeCoords);
-
-    if (path) {
-      const coords = path.map(id => nodeCoords[id]).filter(Boolean);
-      setRoutePath(coords);
-    } else {
-      console.warn('⚠️ No se encontró ruta hacia', destinoId);
-    }
-
+    calculateAndSetRoute(target);
     filterBuildings();
   };
 
@@ -385,41 +373,46 @@ export default function MapScreen() {
 
   const handleShortcutPress = (type) => {
     if (type === 'entrada') {
-      const entradaCoords = nodeCoords['EP-003'];
-      if (entradaCoords) {
-        setMapRegion({
+      const entradaCoords = nodeCoords['EP-003'] || {
+        latitude: 19.40719130839912,
+        longitude: -98.12107448617152,
+      };
+      if (mapRef.current) {
+        mapRef.current.animateToRegion({
           latitude: entradaCoords.latitude,
           longitude: entradaCoords.longitude,
           latitudeDelta: 0.002,
           longitudeDelta: 0.002,
-        });
-        Alert.alert('Atajo', 'Ubicación centrada en la Entrada Principal del Campus 🚪');
+        }, 500);
+      }
+      Alert.alert('Atajo', 'Ubicación centrada en la Entrada Principal del Campus 🚪');
+    } else if (type === 'biblioteca') {
+      const biblioBuilding = buildings.find(b => 
+        b.name.toLowerCase().includes('biblioteca') || 
+        b.id === 'E-12' || 
+        b.id === 'E-13'
+      );
+      if (biblioBuilding) {
+        calculateAndSetRoute(biblioBuilding);
+        Alert.alert('Atajo 📚', `Ruta trazada hacia la Biblioteca (${biblioBuilding.name})`);
+      } else {
+        Alert.alert('Atajo', 'No se localizó el edificio de biblioteca.');
       }
     } else if (type === 'baños') {
       const buildingsWithBathrooms = buildings.filter(b => b.bathrooms && (b.bathrooms.floor_1 || b.bathrooms.floor_2));
       if (buildingsWithBathrooms.length > 0) {
         setFilteredBuildings(buildingsWithBathrooms);
-        setMapRegion({
-          latitude: buildingsWithBathrooms[0].coordinates.latitude,
-          longitude: buildingsWithBathrooms[0].coordinates.longitude,
-          latitudeDelta: 0.005,
-          longitudeDelta: 0.005,
-        });
-        Alert.alert('Atajo', `🚻 Se encontraron ${buildingsWithBathrooms.length} edificios con baños en el Campus.`);
+        // Calcular ruta hacia el más cercano
+        calculateAndSetRoute(buildingsWithBathrooms[0]);
+        Alert.alert('Atajo 🚻', `Se encontraron ${buildingsWithBathrooms.length} edificios con baños. Ruta trazada hacia ${buildingsWithBathrooms[0].name}.`);
       } else {
-        Alert.alert('Atajo', 'No se encontraron edificios con baños en los metadatos.');
+        Alert.alert('Atajo', 'No se encontraron edificios con baños registrados.');
       }
     } else if (type === 'comida') {
       const comidaBuilding = buildings.find(b => b.name.toLowerCase().includes('cafetería') || b.id === 'E-18');
       if (comidaBuilding) {
-        handleMarkerPress(comidaBuilding);
-        setMapRegion({
-          latitude: comidaBuilding.coordinates.latitude,
-          longitude: comidaBuilding.coordinates.longitude,
-          latitudeDelta: 0.002,
-          longitudeDelta: 0.002,
-        });
-        Alert.alert('Atajo', 'Cafetería del Campus ubicada en el Edificio Q 🍔');
+        calculateAndSetRoute(comidaBuilding);
+        Alert.alert('Atajo 🍔', 'Ruta trazada hacia la Cafetería del Campus (Edificio Q)');
       }
     }
   };
@@ -430,25 +423,23 @@ export default function MapScreen() {
     Alert.alert(
       'Modo Accesibilidad',
       nextVal 
-        ? '♿ Ruta Inclusiva activada. El mapa priorizará accesos con rampas y elevadores.' 
+        ? '♿ Ruta Inclusiva activada. El mapa priorizará accesos con rampas y pasos nivelados.' 
         : 'Ruta estándar activada.'
     );
     if (selectedBuilding) {
-      handleMarkerPress(selectedBuilding);
+      calculateAndSetRoute(selectedBuilding);
     }
   };
 
   const handleRouteToEvent = (locationName) => {
     if (!locationName) return;
 
-    // 1. Intentar buscar el edificio dinámicamente por nombre o ID en el listado
     let building = buildings.find(b => 
       b.id.toLowerCase() === locationName.toLowerCase() ||
       b.name.toLowerCase().includes(locationName.toLowerCase()) ||
       locationName.toLowerCase().includes(b.name.toLowerCase())
     );
 
-    // 2. Mapeos de fallback/compatibilidad
     if (!building) {
       const mapping = {
         'Laboratorio de Ciencias': 'E-21',
@@ -464,19 +455,49 @@ export default function MapScreen() {
       }
     }
 
-    // 3. Si localizamos el edificio, pintar ruta e iluminarlo
     if (building) {
-      handleMarkerPress(building);
-      setMapRegion({
-        latitude: building.coordinates.latitude,
-        longitude: building.coordinates.longitude,
-        latitudeDelta: 0.003,
-        longitudeDelta: 0.003,
-      });
+      calculateAndSetRoute(building);
     } else {
       Alert.alert('Eventos', `📍 El evento es en: ${locationName} (No localizado en mapa)`);
     }
   };
+
+  const centerOnUser = () => {
+    const targetCoords = userLocation || nodeCoords['EP-003'];
+    if (targetCoords && mapRef.current) {
+      mapRef.current.animateToRegion({
+        latitude: targetCoords.latitude,
+        longitude: targetCoords.longitude,
+        latitudeDelta: 0.003,
+        longitudeDelta: 0.003,
+      }, 500);
+    } else {
+      Alert.alert('Ubicación', 'Obteniendo tu ubicación actual...');
+    }
+  };
+
+  // Memoizar coordenadas del perímetro para evitar recomputaciones
+  const campusPerimeterCoords = useMemo(() => {
+    return perimetroCampus.features[0]?.geometry?.coordinates?.map(coord => ({
+      latitude: coord[1],
+      longitude: coord[0],
+    })) || [];
+  }, []);
+
+  // Memoizar polígonos de edificios
+  const buildingPolygons = useMemo(() => {
+    return buildings.map(building => {
+      const feature = edificios.features?.find(f => f.properties?.id === building.id);
+      if (!feature || feature.geometry?.type !== 'Polygon') return null;
+      return {
+        id: building.id,
+        coordinates: feature.geometry.coordinates[0].map(coord => ({
+          latitude: coord[1],
+          longitude: coord[0],
+        })),
+      };
+    }).filter(Boolean);
+  }, [buildings]);
 
   if (isLoading) {
     return (
@@ -495,43 +516,42 @@ export default function MapScreen() {
       </View>
       <View style={styles.mapWrapper}>
         <MapView
+          ref={mapRef}
           style={styles.map}
-          region={mapRegion}
-          onRegionChangeComplete={handleRegionChangeComplete}
+          provider={PROVIDER_GOOGLE}
+          initialRegion={INITIAL_CAMPUS_REGION}
           showsUserLocation={!isSimulatedUser}
-          showsMyLocationButton={!isSimulatedUser}
+          showsMyLocationButton={false}
+          showsCompass={false}
+          showsScale={false}
+          rotateEnabled={true}
+          pitchEnabled={true}
+          scrollEnabled={true}
+          zoomEnabled={true}
           cameraBoundary={{
-            latitudeLimits: { min: 19.4058, max: 19.4112 },
-            longitudeLimits: { min: -98.1242, max: -98.1174 },
+            latitudeLimits: { min: 19.4045, max: 19.4125 },
+            longitudeLimits: { min: -98.1255, max: -98.1160 },
           }}
+          minZoomLevel={15}
+          maxZoomLevel={20}
         >
+          {/* Línea del Perímetro del Campus */}
+          {campusPerimeterCoords.length > 0 && (
+            <Polyline
+              coordinates={campusPerimeterCoords}
+              strokeColor={theme.secondary}
+              strokeWidth={2.8}
+              lineDashPattern={[6, 4]}
+            />
+          )}
 
-
-          {/* Línea del Perímetro del Campus de Neón */}
-          <Polyline
-            coordinates={perimetroCampus.features[0].geometry.coordinates.map(coord => ({
-              latitude: coord[1],
-              longitude: coord[0],
-            }))}
-            strokeColor={theme.secondary}
-            strokeWidth={2.8}
-            lineDashPattern={[6, 4]}
-          />
           {/* 1. Dibujar formas poligonales reales de los edificios */}
-          {buildings.map((building) => {
-            const feature = edificios.features?.find(f => f.properties?.id === building.id);
-            if (!feature || feature.geometry?.type !== 'Polygon') return null;
-
-            const isSelected = selectedBuilding?.id === building.id;
-            const polygonCoords = feature.geometry.coordinates[0].map(coord => ({
-              latitude: coord[1],
-              longitude: coord[0],
-            }));
-
+          {buildingPolygons.map((poly) => {
+            const isSelected = selectedBuilding?.id === poly.id;
             return (
               <Polygon
-                key={`poly-${building.id}`}
-                coordinates={polygonCoords}
+                key={`poly-${poly.id}`}
+                coordinates={poly.coordinates}
                 fillColor={isSelected ? `${theme.secondary}33` : `${theme.primary}15`}
                 strokeColor={isSelected ? theme.secondary : `${theme.primary}55`}
                 strokeWidth={isSelected ? 2.5 : 1.2}
@@ -539,7 +559,7 @@ export default function MapScreen() {
             );
           })}
 
-          {/* 2. Dibujar caminos generales */}
+          {/* 2. Dibujar caminos generales de la red */}
           {geojsonLines.map((line) => (
             <Polyline
               key={line.id}
@@ -549,7 +569,7 @@ export default function MapScreen() {
             />
           ))}
 
-          {/* 3. Dibujar pines interactivos con micro-escala */}
+          {/* 3. Dibujar pines interactivos con tracksViewChanges optimizado */}
           {filteredBuildings.map((building) => {
             const isSelected = selectedBuilding?.id === building.id;
             return (
@@ -557,6 +577,7 @@ export default function MapScreen() {
                 key={building.id}
                 coordinate={building.coordinates}
                 onPress={() => handleMarkerPress(building)}
+                tracksViewChanges={isSelected}
               >
                 <View style={[
                   styles.markerContainer,
@@ -603,13 +624,14 @@ export default function MapScreen() {
             </>
           )}
 
-          {/* 5. Dibujar indicador de Usuario Simulado (Modo Demostración) */}
+          {/* 5. Dibujar indicador de Usuario Simulado (Modo Demostración / Fuera de Campus) */}
           {isSimulatedUser && userLocation && (
             <Marker
               key="simulated-user"
               coordinate={userLocation}
               title="Tú (Ubicación Simulada)"
-              description="Navegación demostrativa desde la Entrada Principal"
+              description="Navegación demostrativa"
+              tracksViewChanges={false}
             >
               <View style={styles.simulatedUserContainer}>
                 <View style={[styles.simulatedUserPulse, { backgroundColor: `${theme.secondary}44` }]} />
@@ -618,6 +640,15 @@ export default function MapScreen() {
             </Marker>
           )}
         </MapView>
+
+        {/* Botón flotante para centrar en la ubicación del usuario */}
+        <TouchableOpacity
+          style={[styles.locateButton, { backgroundColor: theme.cardBg, borderColor: theme.cardBorder }]}
+          onPress={centerOnUser}
+          activeOpacity={0.8}
+        >
+          <LocateFixed size={22} color={theme.primary} />
+        </TouchableOpacity>
 
         {/* Barra de búsqueda flotante sobre el mapa */}
         <View style={styles.searchBarWrapper}>
@@ -645,21 +676,25 @@ export default function MapScreen() {
               style={styles.shortcutsWrapper}
               contentContainerStyle={styles.shortcutsContent}
             >
-              <TouchableOpacity style={styles.shortcutPill} onPress={() => {}}>
+              <TouchableOpacity style={styles.shortcutPill} onPress={() => handleShortcutPress('biblioteca')}>
                 <Text style={styles.shortcutEmoji}>📚</Text>
                 <Text style={[styles.shortcutText, { color: theme.gray[800] }]}>Biblioteca</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.shortcutPill} onPress={() => {}}>
+              <TouchableOpacity style={styles.shortcutPill} onPress={() => handleShortcutPress('comida')}>
                 <Text style={styles.shortcutEmoji}>🍔</Text>
                 <Text style={[styles.shortcutText, { color: theme.gray[800] }]}>Cafetería</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.shortcutPill} onPress={() => {}}>
+              <TouchableOpacity style={styles.shortcutPill} onPress={() => handleShortcutPress('baños')}>
                 <Text style={styles.shortcutEmoji}>🚻</Text>
                 <Text style={[styles.shortcutText, { color: theme.gray[800] }]}>Baños</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.shortcutPill} onPress={() => {}}>
+              <TouchableOpacity style={styles.shortcutPill} onPress={toggleAccessibilityShortcut}>
                 <Text style={styles.shortcutEmoji}>♿</Text>
                 <Text style={[styles.shortcutText, { color: theme.gray[800] }]}>Ruta Inclusiva</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.shortcutPill} onPress={() => handleShortcutPress('entrada')}>
+                <Text style={styles.shortcutEmoji}>🚪</Text>
+                <Text style={[styles.shortcutText, { color: theme.gray[800] }]}>Entrada Principal</Text>
               </TouchableOpacity>
             </ScrollView>
 
@@ -715,6 +750,23 @@ const styles = StyleSheet.create({
     left: 12,
     right: 12,
     zIndex: 50,
+  },
+  locateButton: {
+    position: 'absolute',
+    right: 16,
+    top: 76,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 4,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    borderWidth: 1,
+    zIndex: 60,
   },
   bottomPanel: {
     position: 'absolute',
@@ -775,7 +827,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: windowHeight * 0.5, // 40% de la pantalla
+    height: windowHeight * 0.5,
     backgroundColor: COLORS.white,
     borderTopLeftRadius: DIMENSIONS.borderRadius.xl,
     borderTopRightRadius: DIMENSIONS.borderRadius.xl,

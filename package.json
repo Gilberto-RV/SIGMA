@@ -1,0 +1,23 @@
+{
+  "name": "innova2026-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Ecosistema Innova2026 - Campus Modular Inteligente con Big Data y Machine Learning",
+  "scripts": {
+    "start": "powershell -ExecutionPolicy Bypass -File ./start-all-services.ps1",
+    "stop": "powershell -ExecutionPolicy Bypass -File ./stop-all-services.ps1",
+    "test:integrity": "powershell -ExecutionPolicy Bypass -File ./test-integridad.ps1",
+    "ml:train": "cd backend/ml-service && python -u -X utf8 train_all_models.py",
+    "backend:dev": "cd backend && npm run dev",
+    "panel:dev": "cd gestory/project && npm run dev",
+    "app:dev": "cd project && npm run dev"
+  },
+  "keywords": [
+    "innovatec",
+    "bigdata",
+    "machine-learning",
+    "expo",
+    "vite",
+    "express"
+  ]
+}

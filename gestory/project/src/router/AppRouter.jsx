@@ -1,39 +1,74 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ProtectedRoute } from './ProtectedRoute.jsx';
-import { LoginPage } from '../ui/pages/LoginPage.jsx';
 import { AdminLayout } from '../ui/components/layout/AdminLayout.jsx';
-import { DashboardPage } from '../ui/pages/DashboardPage.jsx';
-import { BigDataDashboardPage } from '../ui/pages/BigDataDashboardPage.jsx';
-import { MLDashboardPage } from '../ui/pages/MLDashboardPage.jsx';
-import { EventosPage } from '../ui/pages/EventosPage.jsx';
-import { EdificiosPage } from '../ui/pages/EdificiosPage.jsx';
-import { CalendarioPage } from '../ui/pages/CalendarioPage.jsx';
-import { AjustesPage } from '../ui/pages/AjustesPage.jsx';
+
+// Code-splitting con lazy loading para optimización de bundle
+const LoginPage = lazy(() => import('../ui/pages/LoginPage.jsx').then(m => ({ default: m.LoginPage })));
+const DashboardPage = lazy(() => import('../ui/pages/DashboardPage.jsx').then(m => ({ default: m.DashboardPage })));
+const BigDataDashboardPage = lazy(() => import('../ui/pages/BigDataDashboardPage.jsx').then(m => ({ default: m.BigDataDashboardPage })));
+const MLDashboardPage = lazy(() => import('../ui/pages/MLDashboardPage.jsx').then(m => ({ default: m.MLDashboardPage })));
+const EventosPage = lazy(() => import('../ui/pages/EventosPage.jsx').then(m => ({ default: m.EventosPage })));
+const EdificiosPage = lazy(() => import('../ui/pages/EdificiosPage.jsx').then(m => ({ default: m.EdificiosPage })));
+const CalendarioPage = lazy(() => import('../ui/pages/CalendarioPage.jsx').then(m => ({ default: m.CalendarioPage })));
+const AjustesPage = lazy(() => import('../ui/pages/AjustesPage.jsx').then(m => ({ default: m.AjustesPage })));
+
+// Componente de carga visual
+function PageLoader() {
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      height: '60vh',
+      flexDirection: 'column',
+      gap: '16px',
+      color: '#3b82f6'
+    }}>
+      <div style={{
+        width: '40px',
+        height: '40px',
+        border: '3px solid rgba(59, 130, 246, 0.2)',
+        borderTopColor: '#3b82f6',
+        borderRadius: '50%',
+        animation: 'spin 0.8s linear infinite'
+      }} />
+      <span style={{ fontSize: '14px', color: '#64748b' }}>Cargando módulo...</span>
+      <style>{`
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
+    </div>
+  );
+}
 
 export function AppRouter() {
   return (
     <Router>
-      <Routes>
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/" element={<Navigate to="/admin/dashboard" replace />} />
-        
-        <Route path="/admin" element={
-          <ProtectedRoute>
-            <AdminLayout />
-          </ProtectedRoute>
-        }>
-          <Route index element={<Navigate to="/admin/dashboard" replace />} />
-          <Route path="dashboard" element={<DashboardPage />} />
-          <Route path="bigdata" element={<BigDataDashboardPage />} />
-          <Route path="ml" element={<MLDashboardPage />} />
-          <Route path="eventos" element={<EventosPage />} />
-          <Route path="edificios" element={<EdificiosPage />} />
-          <Route path="calendario" element={<CalendarioPage />} />
-          <Route path="ajustes" element={<AjustesPage />} />
-        </Route>
-        
-        <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
-      </Routes>
+      <Suspense fallback={<PageLoader />}>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/" element={<Navigate to="/admin/dashboard" replace />} />
+          
+          <Route path="/admin" element={
+            <ProtectedRoute>
+              <AdminLayout />
+            </ProtectedRoute>
+          }>
+            <Route index element={<Navigate to="/admin/dashboard" replace />} />
+            <Route path="dashboard" element={<DashboardPage />} />
+            <Route path="bigdata" element={<BigDataDashboardPage />} />
+            <Route path="ml" element={<MLDashboardPage />} />
+            <Route path="eventos" element={<EventosPage />} />
+            <Route path="edificios" element={<EdificiosPage />} />
+            <Route path="calendario" element={<CalendarioPage />} />
+            <Route path="ajustes" element={<AjustesPage />} />
+          </Route>
+          
+          <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
+        </Routes>
+      </Suspense>
     </Router>
   );
 }

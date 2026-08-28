@@ -3,6 +3,8 @@ import { Building } from '../../core/entities/Building';
 import axios from 'axios';
 import api from '../../core/config/api';
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 export class HttpBuildingRepository extends BuildingRepository {
   constructor() {
     super();
@@ -12,11 +14,24 @@ export class HttpBuildingRepository extends BuildingRepository {
   async getAllBuildings() {
     try {
       const response = await api.get('/buildings');
-      return response.data.map(item => new Building(this.mapApiDataToEntity(item)));
+      if (response?.data && Array.isArray(response.data)) {
+        // Guardar en caché local para soporte offline
+        AsyncStorage.setItem('cached_buildings', JSON.stringify(response.data)).catch(() => {});
+        return response.data.map(item => new Building(this.mapApiDataToEntity(item)));
+      }
     } catch (error) {
-      console.error('Error al obtener todos los edificios:', error);
-      return [];
+      console.warn('⚠️ Red no disponible para edificios, cargando desde caché offline...');
+      try {
+        const cached = await AsyncStorage.getItem('cached_buildings');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          return parsed.map(item => new Building(this.mapApiDataToEntity(item)));
+        }
+      } catch (cacheError) {
+        console.error('Error al leer caché de edificios:', cacheError);
+      }
     }
+    return [];
   }
 
   async getBuildingById(id) {

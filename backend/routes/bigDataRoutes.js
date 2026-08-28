@@ -11,6 +11,7 @@ router.use(authMiddleware);
 
 // Dashboard y estadísticas (solo administradores)
 router.get('/dashboard', authorizeRoles('administrador'), bigDataController.getDashboardStats);
+router.get('/stats', authorizeRoles('administrador'), bigDataController.getDashboardStats);
 router.get('/stats/buildings', authorizeRoles('administrador'), bigDataController.getBuildingStats);
 router.get('/stats/events', authorizeRoles('administrador'), bigDataController.getEventStats);
 router.get('/buildings/peak-hours', authorizeRoles('administrador'), bigDataController.getBuildingPeakHours);

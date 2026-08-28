@@ -60,8 +60,42 @@ export function buildGraph(features) {
   return { graph, nodeCoords };
 }
 
+export function findNearestNode(coords, nodeCoords, graph) {
+  if (!coords || !nodeCoords) return null;
+  const lat = coords.latitude;
+  const lon = coords.longitude;
+  if (typeof lat !== 'number' || typeof lon !== 'number') return null;
+
+  let closestNode = null;
+  let minDistance = Infinity;
+
+  for (const [nodeId, nodeCoord] of Object.entries(nodeCoords)) {
+    // Solo considerar nodos válidos que formen parte de la red de navegación
+    if (graph && (!graph[nodeId] || graph[nodeId].length === 0)) continue;
+    if (!nodeCoord || typeof nodeCoord.latitude !== 'number' || typeof nodeCoord.longitude !== 'number') continue;
+
+    const dx = lon - nodeCoord.longitude;
+    const dy = lat - nodeCoord.latitude;
+    const distSq = dx * dx + dy * dy;
+
+    if (distSq < minDistance) {
+      minDistance = distSq;
+      closestNode = nodeId;
+    }
+  }
+
+  return closestNode;
+}
+
 export function findRoute(graph, start, goal, nodeCoords = {}) {
-  // Dijkstra's algorithm
+  if (!graph || !start || !goal) return null;
+  if (!graph[start] || !graph[goal]) return null;
+
+  if (start === goal) {
+    return [start];
+  }
+
+  // Algoritmo de Dijkstra
   const distances = {};
   const previous = {};
   const unvisited = new Set(Object.keys(graph));
@@ -75,8 +109,7 @@ export function findRoute(graph, start, goal, nodeCoords = {}) {
   function getDistance(id1, id2) {
     const c1 = nodeCoords[id1];
     const c2 = nodeCoords[id2];
-    if (!c1 || !c2) return 1; // Default fallback weight
-    // Simple Pythagorean distance for small areas
+    if (!c1 || !c2) return 1; // Fallback
     const dx = c1.longitude - c2.longitude;
     const dy = c1.latitude - c2.latitude;
     return Math.sqrt(dx * dx + dy * dy);
@@ -85,12 +118,10 @@ export function findRoute(graph, start, goal, nodeCoords = {}) {
   const queue = [start];
   
   while (queue.length > 0) {
-    // Sort queue by minimum distance
     queue.sort((a, b) => distances[a] - distances[b]);
     const current = queue.shift();
     
     if (current === goal) {
-      // Reconstruct path
       const path = [];
       let curr = goal;
       while (curr !== undefined) {
@@ -123,3 +154,4 @@ export function findRoute(graph, start, goal, nodeCoords = {}) {
 
   return null; // No se encontró ruta
 }
+

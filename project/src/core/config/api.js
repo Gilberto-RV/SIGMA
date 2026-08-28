@@ -2,8 +2,24 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import Constants from 'expo-constants';
+
+const getBaseUrl = () => {
+  if (process.env.EXPO_PUBLIC_API_URL) {
+    return process.env.EXPO_PUBLIC_API_URL;
+  }
+  const hostUri = Constants.expoConfig?.hostUri || Constants.manifest2?.extra?.expoClient?.hostUri;
+  if (hostUri) {
+    const ip = hostUri.split(':')[0];
+    return `http://${ip}:5000/api`;
+  }
+  return 'http://192.168.1.89:5000/api';
+};
+
+const API_URL = getBaseUrl();
+
 const api = axios.create({
-  baseURL: 'http://192.168.16.124:5000/api',
+  baseURL: API_URL,
   headers: {
     'Content-Type': 'application/json',
   },

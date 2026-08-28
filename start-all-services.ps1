@@ -57,7 +57,34 @@ Write-Host ""
 # Obtener ruta actual
 $rootPath = Get-Location
 
-# 1. BACKEND (Node.js/Express)
+# 1. SERVICIO ML (Python/FastAPI)
+Write-Host "[INICIANDO] Servicio ML (Python/FastAPI)..." -ForegroundColor Green
+$mlPath = Join-Path $rootPath "backend\ml-service"
+Set-Location $mlPath
+
+# Verificar si existe el entorno virtual
+if (-not (Test-Path "venv\Scripts\Activate.ps1")) {
+    Write-Host "[ADVERTENCIA] Entorno virtual no encontrado en backend\ml-service\" -ForegroundColor Yellow
+} else {
+    # Verificar si existe .env
+    if (-not (Test-Path ".env")) {
+        Write-Host "[ADVERTENCIA] Archivo .env no encontrado en backend\ml-service\" -ForegroundColor Yellow
+    }
+    
+    # Verificar si los modelos existen
+    if (-not (Test-Path "models\attendance_predictor.pkl")) {
+        Write-Host "[ENTRENANDO] Modelos ML..." -ForegroundColor Yellow
+        & ".\venv\Scripts\python.exe" train_all_models.py
+    }
+    
+    $mlCommand = "cd '$mlPath'; .\venv\Scripts\Activate.ps1; Write-Host '[SERVICIO ML] Puerto 8000' -ForegroundColor Green; python -m uvicorn api:app --host 0.0.0.0 --port 8000 --reload"
+    Start-Process powershell -ArgumentList "-NoExit", "-Command", $mlCommand -WindowStyle Normal
+    Set-Location $rootPath
+    Start-Sleep -Seconds 3
+    Wait-ForService -Port 8000 -ServiceName "Servicio ML"
+}
+
+# 2. BACKEND (Node.js/Express)
 Write-Host "[INICIANDO] Backend (Node.js/Express)..." -ForegroundColor Green
 $backendPath = Join-Path $rootPath "backend"
 Set-Location $backendPath
@@ -98,7 +125,7 @@ Set-Location $rootPath
 Start-Sleep -Seconds 3
 Wait-ForService -Port 5000 -ServiceName "Backend"
 
-# 2. PANEL DE ADMINISTRACIÓN (Vite/React)
+# 3. PANEL DE ADMINISTRACIÓN (Vite/React)
 Write-Host "[INICIANDO] Panel de Administracion (Vite/React)..." -ForegroundColor Green
 $panelPath = Join-Path $rootPath "gestory\project"
 Set-Location $panelPath
@@ -126,67 +153,22 @@ if (-not (Test-Path ".env")) {
 $panelCommand = "cd '$panelPath'; Write-Host '[PANEL ADMIN] Puerto 5173' -ForegroundColor Green; npm run dev"
 Start-Process powershell -ArgumentList "-NoExit", "-Command", $panelCommand -WindowStyle Normal
 Set-Location $rootPath
-Start-Sleep -Seconds 3
+Start-Sleep -Seconds 2
 Wait-ForService -Port 5173 -ServiceName "Panel de Administracion"
 
-# 3. APP MÓVIL (Expo)
+# 4. APP MÓVIL (Expo)
 Write-Host "[INICIANDO] App Movil (Expo)..." -ForegroundColor Green
 $appPath = Join-Path $rootPath "project"
 Set-Location $appPath
 
-# Verificar si node_modules existe
 if (-not (Test-Path "node_modules")) {
     Write-Host "[INSTALANDO] Dependencias de la app movil..." -ForegroundColor Yellow
     npm install
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "[ERROR] Error instalando dependencias de la app movil" -ForegroundColor Red
-        Set-Location $rootPath
-        exit 1
-    }
 }
 
 $appCommand = "cd '$appPath'; Write-Host '[APP MOVIL] Expo' -ForegroundColor Green; npm run dev"
 Start-Process powershell -ArgumentList "-NoExit", "-Command", $appCommand -WindowStyle Normal
 Set-Location $rootPath
-
-# 4. SERVICIO ML (Python/FastAPI)
-Write-Host "[INICIANDO] Servicio ML (Python/FastAPI)..." -ForegroundColor Green
-$mlPath = Join-Path $rootPath "backend\ml-service"
-Set-Location $mlPath
-
-# Verificar si existe el entorno virtual
-if (-not (Test-Path "venv\Scripts\Activate.ps1")) {
-    Write-Host "[ADVERTENCIA] Entorno virtual no encontrado." -ForegroundColor Yellow
-    Write-Host "   Ejecuta primero:" -ForegroundColor Yellow
-    Write-Host "   python -m venv venv" -ForegroundColor Yellow
-    Write-Host "   .\venv\Scripts\Activate.ps1" -ForegroundColor Yellow
-    Write-Host "   pip install -r requirements.txt" -ForegroundColor Yellow
-    Write-Host ""
-    Set-Location $rootPath
-} else {
-    # Verificar si existe .env
-    if (-not (Test-Path ".env")) {
-        Write-Host "[ADVERTENCIA] Archivo .env no encontrado en backend\ml-service\" -ForegroundColor Yellow
-        Write-Host "   Crea un archivo .env con:" -ForegroundColor Yellow
-        Write-Host "   MONGO_URI=mongodb+srv://usuario:password@cluster.mongodb.net/innovatec" -ForegroundColor Yellow
-        Write-Host "   ML_PORT=8000" -ForegroundColor Yellow
-        Write-Host "   ML_HOST=0.0.0.0" -ForegroundColor Yellow
-        Write-Host ""
-    }
-    
-    # Verificar si los modelos existen
-    if (-not (Test-Path "models\attendance_predictor.pkl")) {
-        Write-Host "[ENTRENANDO] Modelos ML..." -ForegroundColor Yellow
-        & ".\venv\Scripts\python.exe" train_all_models.py
-        Write-Host ""
-    }
-    
-    $mlCommand = "cd '$mlPath'; Write-Host '[ML SERVICE] Puerto 8000' -ForegroundColor Green; .\venv\Scripts\Activate.ps1; python main.py"
-    Start-Process powershell -ArgumentList "-NoExit", "-Command", $mlCommand -WindowStyle Normal
-    Set-Location $rootPath
-    Start-Sleep -Seconds 5
-    Wait-ForService -Port 8000 -ServiceName "Servicio ML"
-}
 
 # Resumen
 Write-Host ""

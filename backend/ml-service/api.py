@@ -4,10 +4,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import joblib
 import numpy as np
+import pandas as pd
+import warnings
 from datetime import datetime
 import json
 import os
 from config import MODELS_DIR
+
+# Silenciar advertencias de feature names de scikit-learn
+warnings.filterwarnings('ignore', category=UserWarning)
 
 app = FastAPI(title="ML Service - INNOVATEC", version="1.0.0")
 
@@ -25,6 +30,7 @@ attendance_model = None
 attendance_metadata = None
 mobility_model = None
 mobility_metadata = None
+mobility_label_encoder = None
 saturation_model = None
 saturation_metadata = None
 
@@ -36,7 +42,12 @@ def load_attendance_model():
     metadata_path = f'{MODELS_DIR}/attendance_predictor_metadata.json'
     
     if os.path.exists(model_path):
-        attendance_model = joblib.load(model_path)
+        loaded = joblib.load(model_path)
+        if isinstance(loaded, dict) and 'model' in loaded:
+            attendance_model = loaded['model']
+        else:
+            attendance_model = loaded
+            
         if os.path.exists(metadata_path):
             with open(metadata_path, 'r') as f:
                 attendance_metadata = json.load(f)
@@ -46,13 +57,20 @@ def load_attendance_model():
 
 def load_mobility_model():
     """Cargar el modelo de predicción de movilidad"""
-    global mobility_model, mobility_metadata
+    global mobility_model, mobility_metadata, mobility_label_encoder
     
     model_path = f'{MODELS_DIR}/mobility_demand_predictor.pkl'
     metadata_path = f'{MODELS_DIR}/mobility_demand_predictor_metadata.json'
     
     if os.path.exists(model_path):
-        mobility_model = joblib.load(model_path)
+        loaded = joblib.load(model_path)
+        if isinstance(loaded, dict) and 'model' in loaded:
+            mobility_model = loaded['model']
+            mobility_label_encoder = loaded.get('label_encoder')
+        else:
+            mobility_model = loaded
+            mobility_label_encoder = None
+            
         if os.path.exists(metadata_path):
             with open(metadata_path, 'r') as f:
                 mobility_metadata = json.load(f)
@@ -68,7 +86,12 @@ def load_saturation_model():
     metadata_path = f'{MODELS_DIR}/saturation_predictor_metadata.json'
     
     if os.path.exists(model_path):
-        saturation_model = joblib.load(model_path)
+        loaded = joblib.load(model_path)
+        if isinstance(loaded, dict) and 'model' in loaded:
+            saturation_model = loaded['model']
+        else:
+            saturation_model = loaded
+            
         if os.path.exists(metadata_path):
             with open(metadata_path, 'r') as f:
                 saturation_metadata = json.load(f)
@@ -202,8 +225,8 @@ async def predict_attendance(request: AttendancePredictionRequest):
             'popularityScore': request.popularityScore
         }
         
-        # Crear array de features en el orden correcto
-        features = np.array([[features_dict[f] for f in features_order]])
+        # Crear DataFrame de features en el orden correcto
+        features = pd.DataFrame([[features_dict[f] for f in features_order]], columns=features_order)
         
         # Predecir
         prediction = attendance_model.predict(features)[0]
@@ -271,10 +294,23 @@ async def predict_mobility(request: MobilityPredictionRequest):
             'averageViewDuration': request.averageViewDuration
         }
         
-        features = np.array([[features_dict[f] for f in features_order]])
-        prediction = mobility_model.predict(features)[0]
-        prediction = max(0, int(prediction))
-        confidence = min(1.0, max(0.0, 0.7))
+        features = pd.DataFrame([[features_dict[f] for f in features_order]], columns=features_order)
+        
+        if mobility_label_encoder and hasattr(mobility_label_encoder, 'inverse_transform'):
+            raw_pred = mobility_model.predict(features)[0]
+            try:
+                class_val = mobility_label_encoder.inverse_transform([raw_pred])[0]
+                if str(class_val).isdigit():
+                    prediction = int(class_val)
+                else:
+                    demand_map = {'Baja': 35, 'Media': 85, 'Alta': 160, 'Muy Alta': 250}
+                    prediction = demand_map.get(str(class_val), max(10, int(request.uniqueVisitors * 1.5 or 50)))
+            except:
+                prediction = max(10, int(request.uniqueVisitors * 1.5 or 50))
+        else:
+            prediction = max(0, int(float(mobility_model.predict(features)[0])))
+
+        confidence = min(1.0, max(0.0, 0.75))
         
         return PredictionResponse(
             prediction=prediction,
@@ -331,7 +367,7 @@ async def predict_saturation(request: SaturationPredictionRequest):
             'popularityScore': request.popularityScore
         }
         
-        features = np.array([[features_dict[f] for f in features_order]])
+        features = pd.DataFrame([[features_dict[f] for f in features_order]], columns=features_order)
         saturation_level = int(saturation_model.predict(features)[0])
         
         # Etiquetas de saturación

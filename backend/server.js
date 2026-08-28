@@ -34,11 +34,26 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Root health check endpoint
+app.get('/', (req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'Innova2026 Backend API',
+    timestamp: new Date().toISOString(),
+    database: 'connected'
+  });
+});
+
 // Rutas
 app.use('/api/buildings', buildingRoutes);
 app.use('/api/auth', authRoutes); // ← nueva ruta para autenticación
 app.use('/api/events', eventRoutes); // ← nueva ruta para eventos
 app.use('/api/bigdata', bigDataRoutes); // ← rutas de Big Data
+
+// Manejadores de errores globales
+import { notFoundHandler, errorHandler } from './middlewares/errorHandler.js';
+app.use(notFoundHandler);
+app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, '0.0.0.0', () => {

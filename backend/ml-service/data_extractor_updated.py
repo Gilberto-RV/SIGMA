@@ -157,8 +157,20 @@ def extract_mobility_data(days_back=90):
             'buildingId': {'$in': SELECTED_BUILDINGS}
         }))
         
-        print(f'✅ Analíticas de movilidad extraídas: {len(building_analytics)}')
-        
+        # Optimización: Obtener todos los eventos del período en una sola consulta
+        events_list = list(db.events.find({
+            'date': {'$gte': cutoff_date}
+        }, {'building': 1, 'date': 1}))
+
+        # Indexar eventos en memoria por (building, fecha)
+        events_by_building_day = {}
+        for ev in events_list:
+            b_id = ev.get('building')
+            ev_date = ev.get('date')
+            if b_id and ev_date:
+                day_key = (str(b_id), ev_date.strftime('%Y-%m-%d'))
+                events_by_building_day[day_key] = events_by_building_day.get(day_key, 0) + 1
+
         data = []
         for analytics in building_analytics:
             # Calcular hora pico
@@ -168,19 +180,14 @@ def extract_mobility_data(days_back=90):
                 max_peak = max(peak_hours, key=lambda x: x.get('count', 0))
                 peak_hour = max_peak.get('hour', 12)
             
-            # Contar eventos en ese edificio ese día
+            # Obtener conteo de eventos desde el índice en memoria O(1)
             date = analytics.get('date')
             building_id = analytics.get('buildingId')
             
             events_count = 0
             if date and building_id:
-                events_count = db.events.count_documents({
-                    'building': building_id,
-                    'date': {
-                        '$gte': date,
-                        '$lt': datetime.combine(date, datetime.max.time())
-                    }
-                })
+                day_key = (str(building_id), date.strftime('%Y-%m-%d'))
+                events_count = events_by_building_day.get(day_key, 0)
             
             # Calcular demanda basada en métricas
             view_count = analytics.get('viewCount', 0)
@@ -286,8 +293,9 @@ def extract_saturation_data(days_back=90):
         
         print(f'✅ Datos de saturación guardados en {csv_path}')
         print(f'📊 Total de registros: {len(df)}')
-        print(f'📈 Distribución de saturación:')
-        print(df['saturationLevel'].value_counts())
+        if not df.empty and 'saturationLevel' in df.columns:
+            print(f'📈 Distribución de saturación:')
+            print(df['saturationLevel'].value_counts())
         
         return df
     finally:
