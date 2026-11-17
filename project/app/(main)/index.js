@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
-import { View, StyleSheet, Text, Dimensions, Alert, ScrollView, Animated, Image, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, Text, Dimensions, Alert, ScrollView, Animated, Image, TouchableOpacity, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MapView, { Marker, Polyline, Polygon, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
@@ -18,6 +18,15 @@ import { COLORS } from '../../src/core/constants/colors';
 import { DIMENSIONS } from '../../src/core/constants/dimensions';
 import { useTheme } from '../../src/core/context/ThemeContext';
 import { School, X, Calendar, LocateFixed } from 'lucide-react-native';
+
+let SigmaMapWeb = null;
+if (Platform.OS === 'web') {
+  try {
+    SigmaMapWeb = require('../../src/presentation/components/map/SigmaMapWeb').SigmaMapWeb;
+  } catch (e) {
+    console.warn('[MapScreen] No se pudo cargar el modulo SigmaMapWeb:', e.message);
+  }
+}
 
 const { width, height } = Dimensions.get('window');
 const LATITUDE_DELTA = 0.005;
@@ -44,6 +53,8 @@ export default function MapScreen() {
   const [filteredBuildings, setFilteredBuildings] = useState([]);
   const [geojsonLines, setGeojsonLines] = useState([]);
   const [routePath, setRoutePath] = useState([]);
+  const [routeResult, setRouteResult] = useState(null);
+  const [isRouting, setIsRouting] = useState(false);
   const [graph, setGraph] = useState({});
   const [nodeCoords, setNodeCoords] = useState({});
   const [isLoading, setIsLoading] = useState(true);
@@ -54,6 +65,38 @@ export default function MapScreen() {
 
   const eventUseCases = serviceContainer.get('eventUseCases');
   const buildingUseCases = serviceContainer.get('buildingUseCases');
+  
+  const routingService = useMemo(() => {
+    try {
+      return serviceContainer.get('routingService');
+    } catch (e) {
+      return null;
+    }
+  }, []);
+
+  const campusAccessService = useMemo(() => {
+    try {
+      return serviceContainer.get('campusAccessService');
+    } catch (e) {
+      return null;
+    }
+  }, []);
+
+  const navigationService = useMemo(() => {
+    try {
+      return serviceContainer.get('navigationService');
+    } catch (e) {
+      return null;
+    }
+  }, []);
+
+  const [navigationState, setNavigationState] = useState({
+    status: 'idle',
+    isNavigating: false,
+    isArrived: false,
+    distanceToDestinationMeters: null,
+    routeResult: null,
+  });
   const panelAnimation = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -292,61 +335,74 @@ export default function MapScreen() {
   };
 
   /**
-   * Calcula la ruta dinámicamente desde la ubicación actual del usuario hacia el edificio objetivo
+   * Calcula la ruta dinámicamente utilizando RoutingService (OSRM, Dijkstra o Híbrida)
    */
-  const calculateAndSetRoute = useCallback((targetBuilding, customStartCoords = null) => {
+  const calculateAndSetRoute = useCallback(async (targetBuilding, customStartCoords = null) => {
     if (!targetBuilding) return;
     setSelectedBuilding(targetBuilding);
 
-    if (!targetBuilding.entradaId) {
-      console.warn(`🚪 Edificio ${targetBuilding.name} no tiene entradaId asignado`);
-      return;
-    }
-
-    const entrada = entradas.features.find(
-      f => f.properties.id === targetBuilding.entradaId && f.properties.tipo === 'ENTRADA_EDIFICIO'
-    );
-
-    if (!entrada) {
-      console.warn(`🚪 Entrada no encontrada para edificio ${targetBuilding.id} (${targetBuilding.entradaId})`);
-      return;
-    }
-
-    const destinoId = entrada.properties.id;
-
-    // 1. Determinar el punto de partida dinámico (ubicación GPS actual del usuario o simulación)
-    const startCoords = customStartCoords || userLocation || nodeCoords['EP-003'] || {
+    const startCoords = customStartCoords || userLocation || {
       latitude: 19.40719130839912,
       longitude: -98.12107448617152,
     };
 
-    // 2. Encontrar el nodo más cercano en la red de caminos del campus
-    const startNodeId = findNearestNode(startCoords, nodeCoords, graph) || 'EP-003';
-
-    // 3. Calcular la ruta óptima mediante Dijkstra
-    const path = findRoute(graph, startNodeId, destinoId, nodeCoords);
-
-    if (path && path.length > 0) {
-      const pathCoords = path.map(id => nodeCoords[id]).filter(Boolean);
-      // Conectar visualmente la ubicación exacta de inicio a la red de caminos
-      const fullRoute = [startCoords, ...pathCoords];
-      setRoutePath(fullRoute);
-
-      // Centrar suavemente la cámara en el objetivo
-      if (mapRef.current) {
-        mapRef.current.animateToRegion({
-          latitude: targetBuilding.coordinates.latitude,
-          longitude: targetBuilding.coordinates.longitude,
-          latitudeDelta: 0.003,
-          longitudeDelta: 0.003,
-        }, 500);
+    let destinationPoint = targetBuilding.coordinates;
+    if (campusAccessService && targetBuilding.id) {
+      try {
+        const entranceAcc = campusAccessService.getBuildingEntrance(targetBuilding.id);
+        if (entranceAcc && entranceAcc.coordinate) {
+          destinationPoint = entranceAcc.coordinate;
+        }
+      } catch (e) {
+        // Fallback a coordenadas del edificio si no se especifica puerta
       }
-    } else {
-      console.warn('⚠️ No se encontró ruta hacia', destinoId);
-      Alert.alert('Ruta', `No se encontró una ruta transitable hacia ${targetBuilding.name}`);
-      setRoutePath([]);
     }
-  }, [userLocation, nodeCoords, graph]);
+
+    if (!routingService) {
+      console.warn('⚠️ RoutingService no disponible en DI');
+      return;
+    }
+
+    try {
+      setIsRouting(true);
+      const result = await routingService.calculateHybridRoute(startCoords, destinationPoint);
+      setRouteResult(result);
+
+      if (navigationService) {
+        const navState = navigationService.setRoute(result);
+        setNavigationState(navState);
+      }
+
+      if (result && Array.isArray(result.coordinates)) {
+        setRoutePath(result.coordinates);
+      }
+
+      if (mapRef.current) {
+        if (typeof mapRef.current.animateToRegion === 'function') {
+          mapRef.current.animateToRegion({
+            latitude: targetBuilding.coordinates.latitude,
+            longitude: targetBuilding.coordinates.longitude,
+            latitudeDelta: 0.003,
+            longitudeDelta: 0.003,
+          }, 500);
+        } else if (typeof mapRef.current.flyTo === 'function') {
+          mapRef.current.flyTo({
+            center: [targetBuilding.coordinates.longitude, targetBuilding.coordinates.latitude],
+            zoom: 17,
+            duration: 500,
+          });
+        }
+      }
+    } catch (err) {
+      const sanitized = (err.message || '').replace(/key=[a-zA-Z0-9_-]+/g, 'key=REDACTED');
+      console.warn('⚠️ Error al calcular la ruta:', sanitized);
+      setRouteResult(null);
+      setRoutePath([]);
+      Alert.alert('Ruta no disponible', `No se pudo calcular una ruta hacia ${targetBuilding.name}.`);
+    } finally {
+      setIsRouting(false);
+    }
+  }, [userLocation, routingService, campusAccessService]);
 
   const handleMarkerPress = (building) => {
     calculateAndSetRoute(building);
@@ -369,7 +425,57 @@ export default function MapScreen() {
 
   const closeInfoPanel = () => {
     setSelectedBuilding(null);
+    setRouteResult(null);
+    setRoutePath([]);
+    if (navigationService) {
+      const navState = navigationService.clearNavigation();
+      setNavigationState(navState);
+    }
   };
+
+  const handleStartNavigation = useCallback(() => {
+    if (!navigationService || !routeResult) return;
+    const startPos = userLocation || { latitude: 19.407191, longitude: -98.121074 };
+    const newState = navigationService.startNavigation(routeResult, startPos);
+    setNavigationState(newState);
+
+    if (mapRef.current) {
+      if (typeof mapRef.current.flyTo === 'function') {
+        mapRef.current.flyTo({
+          center: [startPos.longitude, startPos.latitude],
+          zoom: 18,
+          duration: 800,
+        });
+      } else if (typeof mapRef.current.animateToRegion === 'function') {
+        mapRef.current.animateToRegion({
+          latitude: startPos.latitude,
+          longitude: startPos.longitude,
+          latitudeDelta: 0.002,
+          longitudeDelta: 0.002,
+        }, 800);
+      }
+    }
+  }, [navigationService, routeResult, userLocation]);
+
+  const handleStopNavigation = useCallback(() => {
+    if (!navigationService) return;
+    const newState = navigationService.stopNavigation();
+    setNavigationState(newState);
+  }, [navigationService]);
+
+  useEffect(() => {
+    if (navigationService && userLocation && navigationState.isNavigating) {
+      const navState = navigationService.updateUserPosition(userLocation);
+      setNavigationState(navState);
+
+      if (navState.isArrived && navState.status === 'finished') {
+        Alert.alert(
+          '🎉 Destino Alcanzado',
+          `¡Has llegado a ${selectedBuilding?.name || 'tu destino'}!`
+        );
+      }
+    }
+  }, [userLocation, navigationState.isNavigating, navigationService, selectedBuilding]);
 
   const handleShortcutPress = (type) => {
     if (type === 'entrada') {
@@ -515,12 +621,32 @@ export default function MapScreen() {
         <MapHeader />
       </View>
       <View style={styles.mapWrapper}>
-        <MapView
-          ref={mapRef}
-          style={styles.map}
-          provider={PROVIDER_GOOGLE}
-          initialRegion={INITIAL_CAMPUS_REGION}
-          showsUserLocation={!isSimulatedUser}
+        {Platform.OS === 'web' && SigmaMapWeb ? (
+          <SigmaMapWeb
+            ref={mapRef}
+            buildings={edificios}
+            paths={caminos}
+            entrances={entradas}
+            campusBoundary={perimetroCampus}
+            selectedBuilding={selectedBuilding?.id}
+            onBuildingPress={(feat) => {
+              const bId = feat?.properties?.id || feat?.id;
+              const bObj = buildings.find(b => b.id === bId);
+              if (bObj) calculateAndSetRoute(bObj);
+            }}
+            onMapPress={() => {
+              closeInfoPanel();
+            }}
+            routeResult={routeResult}
+            style={styles.map}
+          />
+        ) : (
+          <MapView
+            ref={mapRef}
+            style={styles.map}
+            provider={PROVIDER_GOOGLE}
+            initialRegion={INITIAL_CAMPUS_REGION}
+            showsUserLocation={!isSimulatedUser}
           showsMyLocationButton={false}
           showsCompass={false}
           showsScale={false}
@@ -640,6 +766,7 @@ export default function MapScreen() {
             </Marker>
           )}
         </MapView>
+        )}
 
         {/* Botón flotante para centrar en la ubicación del usuario */}
         <TouchableOpacity
@@ -717,6 +844,11 @@ export default function MapScreen() {
           <BuildingInfoPanel
             building={selectedBuilding}
             onClose={closeInfoPanel}
+            onRoutePress={() => calculateAndSetRoute(selectedBuilding)}
+            routeResult={routeResult}
+            navigationState={navigationState}
+            onStartNavigation={handleStartNavigation}
+            onStopNavigation={handleStopNavigation}
           />
         </Animated.View>
       )}

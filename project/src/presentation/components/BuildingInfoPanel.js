@@ -6,8 +6,19 @@ import {
 import { COLORS } from '../../core/constants/colors';
 import { DIMENSIONS } from '../../core/constants/dimensions';
 
-export default function BuildingInfoPanel({ building, onClose }) {
+export default function BuildingInfoPanel({
+  building,
+  onClose,
+  onRoutePress,
+  routeResult = null,
+  navigationState = null,
+  onStartNavigation = null,
+  onStopNavigation = null,
+}) {
   if (!building) return null;
+
+  const isNavigating = navigationState?.isNavigating;
+  const isFinished = navigationState?.status === 'finished';
 
   return (
     <View style={styles.container}>
@@ -178,9 +189,23 @@ export default function BuildingInfoPanel({ building, onClose }) {
         </View>
       </ScrollView>
 
-      <TouchableOpacity style={styles.routeButton}>
-        <Text style={styles.routeButtonText}>Cómo llegar</Text>
-      </TouchableOpacity>
+      {isNavigating ? (
+        <TouchableOpacity style={[styles.routeButton, { backgroundColor: COLORS.error }]} onPress={onStopNavigation}>
+          <Text style={styles.routeButtonText}>Detener navegación</Text>
+        </TouchableOpacity>
+      ) : isFinished ? (
+        <TouchableOpacity style={[styles.routeButton, { backgroundColor: COLORS.success }]} onPress={onRoutePress}>
+          <Text style={styles.routeButtonText}>¡Llegaste! Recalcular</Text>
+        </TouchableOpacity>
+      ) : routeResult ? (
+        <TouchableOpacity style={[styles.routeButton, { backgroundColor: COLORS.success }]} onPress={onStartNavigation}>
+          <Text style={styles.routeButtonText}>Iniciar navegación</Text>
+        </TouchableOpacity>
+      ) : (
+        <TouchableOpacity style={styles.routeButton} onPress={onRoutePress}>
+          <Text style={styles.routeButtonText}>Cómo llegar</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
