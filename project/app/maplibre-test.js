@@ -2,7 +2,8 @@ import { useState, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { ArrowLeft, School, Layers, CheckCircle2, Navigation } from 'lucide-react-native';
-import { SigmaMapWeb } from '../src/presentation/components/map/SigmaMapWeb';
+// SigmaMap se resuelve por plataforma (web: maplibre-gl, Android: MapLibre nativo).
+import { SigmaMap } from '../src/presentation/components/map';
 import edificios from '../assets/geo/Edificios.json';
 import caminos from '../assets/geo/caminos.json';
 import entradas from '../assets/geo/Entradas.json';
@@ -79,7 +80,7 @@ export default function MapLibreTestScreen() {
 
       {/* Contenedor del Mapa */}
       <View style={styles.mapContainer}>
-        <SigmaMapWeb
+        <SigmaMap
           ref={mapRef}
           buildings={edificios}
           paths={caminos}

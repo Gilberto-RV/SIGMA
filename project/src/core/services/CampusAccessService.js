@@ -1,21 +1,9 @@
 import { buildGraph } from '../utils/graphUtils.js';
 import { isValidCoordinate, calculateHaversineDistance, isPointInPolygon } from '../utils/geoAdapters.js';
-import { createRequire } from 'module';
 
-let defaultEntradas = { features: [] };
-let defaultCaminos = { features: [] };
-let defaultEdificios = { features: [] };
-let defaultPerimetro = { features: [] };
-
-try {
-  const require = createRequire(import.meta.url);
-  defaultEntradas = require('../../../assets/geo/Entradas.json');
-  defaultCaminos = require('../../../assets/geo/caminos.json');
-  defaultEdificios = require('../../../assets/geo/Edificios.json');
-  defaultPerimetro = require('../../../assets/geo/PerimetroCampus.json');
-} catch (e) {
-  // Fallback para entornos donde require no esté disponible globalmente
-}
+// Los GeoJSON del campus se inyectan desde fuera (ServiceContainer en la app, fixtures en las
+// pruebas). No importar `module`/`createRequire`: Metro no puede resolverlos en Android.
+const EMPTY_COLLECTION = { features: [] };
 
 /**
  * @typedef {'CAMPUS_ENTRANCE' | 'BUILDING_ENTRANCE'} AccessType
@@ -50,10 +38,13 @@ export class CampusAccessService {
     geoJsonEdificios = null,
     geoJsonPerimetro = null,
   } = {}) {
-    const entradas = geoJsonEntradas || defaultEntradas;
-    const caminos = geoJsonCaminos || defaultCaminos;
-    const edificios = geoJsonEdificios || defaultEdificios;
-    const perimetro = geoJsonPerimetro || defaultPerimetro;
+    const entradas = geoJsonEntradas || EMPTY_COLLECTION;
+    const caminos = geoJsonCaminos || EMPTY_COLLECTION;
+    const edificios = geoJsonEdificios || EMPTY_COLLECTION;
+    const perimetro = geoJsonPerimetro || EMPTY_COLLECTION;
+    if (!geoJsonEntradas || !geoJsonPerimetro) {
+      console.warn('[CampusAccessService] Faltan GeoJSON de entradas/perímetro: inyéctalos en el constructor.');
+    }
 
     this.accessPointsMap = new Map();
     this.campusBoundaryPolygon = [];

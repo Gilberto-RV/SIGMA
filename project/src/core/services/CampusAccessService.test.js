@@ -1,9 +1,10 @@
 import { CampusAccessService } from './CampusAccessService.js';
+import { campusAccessServiceOptions } from './campusGeoFixtures.node.js';
 
 console.log('--- Probando CampusAccessService ---');
 
 // Test 1: Instanciación e Inicialización Dinámica desde GeoJSONs
-const campusAccessService = new CampusAccessService();
+const campusAccessService = new CampusAccessService(campusAccessServiceOptions);
 if (!campusAccessService || !(campusAccessService instanceof CampusAccessService)) {
   throw new Error('Falló instanciación de CampusAccessService');
 }
@@ -54,7 +55,7 @@ if (!nearestEntrance || nearestEntrance.id !== 'EP-003') {
 }
 
 // Test 6: Ignorar accesos disabled
-const customService = new CampusAccessService();
+const customService = new CampusAccessService(campusAccessServiceOptions);
 const disabledEp003 = customService.getAccessById('EP-003');
 disabledEp003.enabled = false;
 

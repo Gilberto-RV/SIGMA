@@ -14,6 +14,12 @@ import { CampusAccessService } from '../../core/services/CampusAccessService.js'
 
 import { NavigationService } from '../../core/services/NavigationService.js';
 
+// GeoJSON del campus: Metro los empaqueta como módulos JSON y aquí se inyectan en los servicios.
+import entradasGeo from '../../../assets/geo/Entradas.json';
+import caminosGeo from '../../../assets/geo/caminos.json';
+import edificiosGeo from '../../../assets/geo/Edificios.json';
+import perimetroGeo from '../../../assets/geo/PerimetroCampus.json';
+
 class ServiceContainer {
   constructor() {
     this._services = new Map();
@@ -28,8 +34,15 @@ class ServiceContainer {
 
     // HTTP Clients & Domain Services
     this._services.set('osrmClient', new OsrmClient());
-    this._services.set('dijkstraRoutingService', new DijkstraRoutingService());
-    this._services.set('campusAccessService', new CampusAccessService());
+    this._services.set('dijkstraRoutingService', new DijkstraRoutingService({
+      geoJsonFeatures: [...entradasGeo.features, ...caminosGeo.features],
+    }));
+    this._services.set('campusAccessService', new CampusAccessService({
+      geoJsonEntradas: entradasGeo,
+      geoJsonCaminos: caminosGeo,
+      geoJsonEdificios: edificiosGeo,
+      geoJsonPerimetro: perimetroGeo,
+    }));
     this._services.set('navigationService', new NavigationService());
 
     // Services & Use Cases

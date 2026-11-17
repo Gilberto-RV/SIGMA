@@ -93,3 +93,45 @@ Una vez iniciada la app en Android, se puede navegar hacia la ruta `/maplibre-na
 
 1. **Web Build Export (`npm run build:web`):** Ejecutado exitosamente con código `0`. Cero regresiones en la compilación y empaquetado para navegador.
 2. **Aislamiento Web:** La ruta `/maplibre-test` de MapLibre GL JS Web se mantiene 100% funcional sin interferencias de las llamadas a módulos nativos de Android.
+
+---
+
+## 6. Integración en la Pantalla Principal (Etapa 3B — 17-nov-2026)
+
+La pantalla principal [`app/(main)/index.js`](../../project/app/(main)/index.js) ya **no usa `react-native-maps` ni Google Maps**. Web y Android renderizan el mismo componente `<SigmaMap />`:
+
+```
+src/presentation/components/map/
+├── SigmaMapContract.js   # Props, constantes compartidas (límites, zoom, colores)
+├── SigmaMap.web.js       # Metro (web)      -> SigmaMapWeb   (maplibre-gl)
+├── SigmaMap.native.js    # Metro (android)  -> SigmaMapNative (@maplibre/maplibre-react-native v11)
+├── SigmaMapWeb.jsx
+├── SigmaMapNative.jsx
+└── index.js              # export { SigmaMap }
+```
+
+Metro elige el archivo por extensión de plataforma, así que `maplibre-gl` nunca entra al bundle de Android y el módulo nativo nunca entra al bundle web.
+
+### `SigmaMapNative` (MapLibre React Native v11)
+- `Map` + `Camera` con `maxBounds` del campus y zoom entre 15 y 20.
+- Capas GeoJSON equivalentes a web: perímetro, caminos, edificios (relleno + borde con resaltado del seleccionado mediante expresión `['==', ['get','id'], selectedId]`), entradas y ruta activa (aura + línea discontinua).
+- Pines de edificios (`Marker`) con el ícono `School`, nombre al seleccionar, y marcador propio para el usuario simulado; `NativeUserLocation` cuando la ubicación es real.
+- Toques: `GeoJSONSource.onPress` sobre edificios (con `stopPropagation`) y `Map.onPress` para cerrar el panel.
+- API imperativa común con web: `ref.current.flyTo({ center: [lng, lat], zoom, duration })`.
+
+### Estilo base y API key en Android
+- Si existe `EXPO_PUBLIC_MAPTILER_API_KEY` se usa MapTiler `streets-v2`.
+- Las peticiones nativas **no envían `Referer`**; una clave restringida por origen (p. ej. `localhost:8081`) responde 403 en Android. En ese caso, o si no hay clave, `SigmaMapNative` cambia automáticamente al estilo libre **OpenFreeMap Liberty** (`https://tiles.openfreemap.org/styles/liberty`, datos OSM, sin clave).
+- Para usar MapTiler en Android, crea en MapTiler Cloud una clave para la app móvil sin restricción por Referer.
+
+### Datos GeoJSON inyectados
+`DijkstraRoutingService` y `CampusAccessService` ya no cargan los GeoJSON con `createRequire` de Node (rompía el bundle de Android con `Unable to resolve module module` y dejaba el grafo vacío en web). Ahora:
+- La app los inyecta en [`ServiceContainer.js`](../../project/src/infrastructure/di/ServiceContainer.js).
+- Las pruebas en Node los cargan con [`campusGeoFixtures.node.js`](../../project/src/core/services/campusGeoFixtures.node.js).
+
+### Compilar y probar en Android
+```bash
+cd project
+npx expo prebuild --platform android --clean   # regenera android/ (ignorado en git)
+npx expo run:android                           # requiere JDK 17 y Android SDK (API 36, NDK 27.1)
+```

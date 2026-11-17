@@ -1,17 +1,9 @@
 import { buildGraph, findNearestNode, findRoute } from '../utils/graphUtils.js';
 import { isValidCoordinate } from '../utils/geoAdapters.js';
-import { createRequire } from 'module';
 
-let defaultEntradas = { features: [] };
-let defaultCaminos = { features: [] };
-
-try {
-  const require = createRequire(import.meta.url);
-  defaultEntradas = require('../../../assets/geo/Entradas.json');
-  defaultCaminos = require('../../../assets/geo/caminos.json');
-} catch (e) {
-  // Fallback si createRequire no está disponible en cierto bundler
-}
+// Los GeoJSON del campus se inyectan desde fuera (ServiceContainer en la app, fixtures en las
+// pruebas). Este módulo no debe importar APIs de Node como `module`/`createRequire`: Metro no
+// puede resolverlas y rompen el bundle de Android.
 
 /**
  * Calcula la distancia haversine aproximada en metros entre dos coordenadas.
@@ -51,10 +43,10 @@ export class DijkstraRoutingService {
       this.graph = graph;
       this.nodeCoords = nodeCoords;
     } else {
-      const features = geoJsonFeatures || [
-        ...(defaultEntradas.features || []),
-        ...(defaultCaminos.features || []),
-      ];
+      const features = geoJsonFeatures || [];
+      if (features.length === 0) {
+        console.warn('[DijkstraRoutingService] Sin datos de caminos: inyecta geoJsonFeatures (Entradas + caminos).');
+      }
       const built = buildGraph(features);
       this.graph = built.graph;
       this.nodeCoords = built.nodeCoords;

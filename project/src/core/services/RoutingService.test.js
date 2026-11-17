@@ -3,6 +3,7 @@ import { RoutingService, concatenateCoordinates } from './RoutingService.js';
 import { DijkstraRoutingService } from './DijkstraRoutingService.js';
 import { CampusAccessService } from './CampusAccessService.js';
 import { OSRM_BASE_URL } from '../config/mapConfig.js';
+import { campusAccessServiceOptions } from './campusGeoFixtures.node.js';
 
 console.log('--- Probando RoutingService + CampusAccessService ---');
 
@@ -41,7 +42,7 @@ const mockDijkstraService = {
   },
 };
 
-const campusAccessService = new CampusAccessService();
+const campusAccessService = new CampusAccessService(campusAccessServiceOptions);
 
 const service = new RoutingService({
   osrmClient: mockOsrmClient,

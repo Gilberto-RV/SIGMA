@@ -35,8 +35,13 @@ export const SigmaMapWeb = forwardRef(function SigmaMapWeb(
   const mapInstanceRef = useRef(null);
   const isLoadedRef = useRef(false);
   const routeResultRef = useRef(routeResult);
+  // Los handlers de MapLibre se registran una sola vez; los refs evitan closures obsoletos.
+  const onBuildingPressRef = useRef(onBuildingPress);
+  const onMapPressRef = useRef(onMapPress);
 
   routeResultRef.current = routeResult;
+  onBuildingPressRef.current = onBuildingPress;
+  onMapPressRef.current = onMapPress;
 
   useImperativeHandle(ref, () => ({
     getMap: () => mapInstanceRef.current,
@@ -166,8 +171,13 @@ export const SigmaMapWeb = forwardRef(function SigmaMapWeb(
     });
 
     map.on('click', (e) => {
-      if (onMapPress) {
-        onMapPress({
+      // Un clic sobre un edificio lo maneja el handler de la capa; no es un clic en "zona libre".
+      if (map.getLayer('campus-buildings-fill')) {
+        const hits = map.queryRenderedFeatures(e.point, { layers: ['campus-buildings-fill'] });
+        if (hits.length > 0) return;
+      }
+      if (onMapPressRef.current) {
+        onMapPressRef.current({
           latitude: e.lngLat.lat,
           longitude: e.lngLat.lng,
         });
@@ -290,8 +300,8 @@ export const SigmaMapWeb = forwardRef(function SigmaMapWeb(
     map.on('click', 'campus-buildings-fill', (e) => {
       if (e.features && e.features.length > 0) {
         const feature = e.features[0];
-        if (onBuildingPress) {
-          onBuildingPress(feature);
+        if (onBuildingPressRef.current) {
+          onBuildingPressRef.current(feature);
         }
       }
     });

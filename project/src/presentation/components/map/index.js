@@ -1,12 +1,18 @@
-import { Platform } from 'react-native';
-import { SigmaMapWeb } from './SigmaMapWeb';
-import { SIGMA_MAP_DEFAULT_PROPS } from './SigmaMapContract';
-
 /**
  * Punto de entrada unificado para <SigmaMap />.
- * Despacha dinámicamente a la implementación según la plataforma.
+ *
+ * `./SigmaMap` se resuelve por extensión de plataforma en Metro:
+ *   - web           -> SigmaMap.web.js    (MapLibre GL JS)
+ *   - android / ios -> SigmaMap.native.js (MapLibre React Native)
  */
-export const SigmaMap = Platform.OS === 'web' ? SigmaMapWeb : null;
+import { SigmaMap } from './SigmaMap';
 
-export { SIGMA_MAP_DEFAULT_PROPS } from './SigmaMapContract';
+export { SigmaMap };
+export {
+  SIGMA_MAP_DEFAULT_PROPS,
+  SIGMA_MAP_COLORS,
+  SIGMA_CAMPUS_BOUNDS,
+  SIGMA_MIN_ZOOM,
+  SIGMA_MAX_ZOOM,
+} from './SigmaMapContract';
 export default SigmaMap;
