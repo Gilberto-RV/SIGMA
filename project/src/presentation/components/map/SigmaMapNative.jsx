@@ -1,4 +1,4 @@
-import React, { forwardRef, useCallback, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import {
   Map as MapLibreMap,
@@ -17,6 +17,8 @@ import {
   SIGMA_CAMPUS_BOUNDS,
   SIGMA_MIN_ZOOM,
   SIGMA_MAX_ZOOM,
+  SIGMA_PITCH_3D,
+  SIGMA_DEFAULT_BUILDING_HEIGHT_M,
 } from './SigmaMapContract';
 
 /**
@@ -74,6 +76,7 @@ export const SigmaMapNative = forwardRef(function SigmaMapNative(
     onMapPress = null,
     routeResult = null,
     colors: colorOverrides = null,
+    is3D = false,
     interactive = true,
     style,
   },
@@ -108,6 +111,22 @@ export const SigmaMapNative = forwardRef(function SigmaMapNative(
       }
     },
   }));
+
+  // Vista 3D: inclina la cámara (las capas cambian abajo según is3D).
+  const isFirst3DRender = useRef(true);
+  useEffect(() => {
+    if (isFirst3DRender.current) {
+      isFirst3DRender.current = false;
+      if (!is3D) return;
+    }
+    if (!cameraRef.current) return;
+    try {
+      const pending = cameraRef.current.setStop({ pitch: is3D ? SIGMA_PITCH_3D : 0, duration: 800, easing: 'ease' });
+      pending?.catch?.((err) => console.warn('[SigmaMapNative] No se pudo inclinar la cámara:', err?.message));
+    } catch (err) {
+      console.warn('[SigmaMapNative] Cámara aún no inicializada para la vista 3D:', err?.message);
+    }
+  }, [is3D]);
 
   const routeCollection = useMemo(() => {
     if (!routeResult) return EMPTY_COLLECTION;
@@ -224,14 +243,27 @@ export const SigmaMapNative = forwardRef(function SigmaMapNative(
           data={buildings || EMPTY_COLLECTION}
           onPress={onBuildingPress ? handleBuildingSourcePress : undefined}
         >
-          <Layer
-            id="campus-buildings-fill"
-            type="fill"
-            paint={{
-              'fill-color': ['case', isSelectedExpr, colors.secondary, colors.primary],
-              'fill-opacity': ['case', isSelectedExpr, 0.5, 0.2],
-            }}
-          />
+          {is3D ? (
+            <Layer
+              id="campus-buildings-3d"
+              type="fill-extrusion"
+              paint={{
+                'fill-extrusion-color': ['case', isSelectedExpr, colors.secondary, '#5b7c99'],
+                'fill-extrusion-height': ['coalesce', ['get', 'altura_m'], SIGMA_DEFAULT_BUILDING_HEIGHT_M],
+                'fill-extrusion-base': 0,
+                'fill-extrusion-opacity': 0.85,
+              }}
+            />
+          ) : (
+            <Layer
+              id="campus-buildings-fill"
+              type="fill"
+              paint={{
+                'fill-color': ['case', isSelectedExpr, colors.secondary, colors.primary],
+                'fill-opacity': ['case', isSelectedExpr, 0.5, 0.2],
+              }}
+            />
+          )}
           <Layer
             id="campus-buildings-outline"
             type="line"

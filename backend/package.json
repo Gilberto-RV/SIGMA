@@ -20,7 +20,8 @@
     "verify-bigdata": "node scripts/verifyBigDataSystem.js",
     "ml:verify": "cd ml-service && python verify_ml_setup.py",
     "ml:train": "cd ml-service && python train_all_models.py",
-    "ml:start": "cd ml-service && python main.py"
+    "ml:start": "cd ml-service && python main.py",
+    "seed-geo": "node scripts/seedGeoLayers.js"
   },
   "keywords": [],
   "author": "",

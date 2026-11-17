@@ -13,6 +13,7 @@ import authRoutes from './routes/authRoutes.js';
 import eventRoutes from './routes/eventRoutes.js';
 import bigDataRoutes from './routes/bigDataRoutes.js';
 import categoryRoutes from './routes/categoryRoutes.js';
+import geoRoutes from './routes/geoRoutes.js';
 
 // Registro de modelos (necesario para populate)
 import './models/Building.js';
@@ -55,6 +56,7 @@ export function createApp() {
   app.use('/api/events', eventRoutes);
   app.use('/api/bigdata', bigDataRoutes);
   app.use('/api/categories', categoryRoutes);
+  app.use('/api/geo', geoRoutes);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

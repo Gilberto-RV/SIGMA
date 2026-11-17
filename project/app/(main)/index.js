@@ -2,10 +2,8 @@ import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { View, StyleSheet, Text, Dimensions, Alert, ScrollView, Animated, Image, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
-import edificios from '../../assets/geo/Edificios.json';
-import caminos from '../../assets/geo/caminos.json';
-import entradas from '../../assets/geo/Entradas.json';
-import perimetroCampus from '../../assets/geo/PerimetroCampus.json';
+import { BUNDLED_GEO } from '../../src/core/geo/bundledGeo';
+import { withBuildingHeights } from '../../src/core/geo/geoLayers';
 import { buildGraph } from '../../src/core/utils/graphUtils';
 import { SigmaMap } from '../../src/presentation/components/map';
 
@@ -17,7 +15,7 @@ import { serviceContainer } from '../../src/infrastructure/di/ServiceContainer';
 import { COLORS } from '../../src/core/constants/colors';
 import { DIMENSIONS } from '../../src/core/constants/dimensions';
 import { useTheme } from '../../src/core/context/ThemeContext';
-import { X, Calendar, LocateFixed } from 'lucide-react-native';
+import { X, Calendar, LocateFixed, Box, Map as MapIcon } from 'lucide-react-native';
 
 const windowHeight = Dimensions.get('window').height;
 
@@ -26,7 +24,7 @@ const ENTRADA_PRINCIPAL_COORDS = {
   longitude: -98.12107448617152,
 };
 
-// Niveles de zoom MapLibre equivalentes a los deltas usados con react-native-maps.
+// Niveles de zoom de MapLibre equivalentes a los deltas de cámara que usaba la versión anterior.
 const ZOOM_BUILDING = 17; // ~0.003°
 const ZOOM_CLOSE = 17.5; // ~0.002°
 const ZOOM_NAVIGATION = 18;
@@ -51,17 +49,23 @@ export default function MapScreen() {
   const [showEventsPanel, setShowEventsPanel] = useState(true);
   const [isInsideCampus, setIsInsideCampus] = useState(true);
   const [isSimulatedUser, setIsSimulatedUser] = useState(false);
+  // Capas del campus: empiezan con las empaquetadas y se reemplazan si el backend tiene versión nueva.
+  const [geoLayers, setGeoLayers] = useState(BUNDLED_GEO);
+  const geoLayersRef = useRef(BUNDLED_GEO);
+  const [geoRevision, setGeoRevision] = useState(0);
+  const [is3D, setIs3D] = useState(false);
 
   const eventUseCases = serviceContainer.get('eventUseCases');
   const buildingUseCases = serviceContainer.get('buildingUseCases');
   
+  // Se reconstruyen cuando cambian las capas (geoRevision); ver ServiceContainer.configureGeoData.
   const routingService = useMemo(() => {
     try {
       return serviceContainer.get('routingService');
     } catch (e) {
       return null;
     }
-  }, []);
+  }, [geoRevision]);
 
   const campusAccessService = useMemo(() => {
     try {
@@ -69,7 +73,7 @@ export default function MapScreen() {
     } catch (e) {
       return null;
     }
-  }, []);
+  }, [geoRevision]);
 
   const navigationService = useMemo(() => {
     try {
@@ -109,7 +113,8 @@ export default function MapScreen() {
   useEffect(() => {
     loadInitialData();
     requestLocationPermission();
-    processGeoJSON();
+    processGeoJSON(BUNDLED_GEO);
+    loadGeoLayers();
 
     return () => {
       if (locationSubscriptionRef.current) {
@@ -122,7 +127,24 @@ export default function MapScreen() {
     filterBuildings();
   }, [searchQuery, buildings]);
 
-  const processGeoJSON = async () => {
+  /** Descarga capas más recientes del backend (o usa la caché) y reconstruye rutas y edificios. */
+  const loadGeoLayers = async () => {
+    try {
+      const result = await serviceContainer.get('geoRepository').getLayers();
+      if (result.source === 'bundled') return;
+      serviceContainer.configureGeoData(result.layers);
+      geoLayersRef.current = result.layers;
+      setGeoLayers(result.layers);
+      setGeoRevision((revision) => revision + 1);
+      processGeoJSON(result.layers);
+      console.log(`🗺️ Capas del campus desde ${result.source} (versión ${result.version})`);
+    } catch (err) {
+      console.warn('No se pudieron actualizar las capas del campus:', err?.message);
+    }
+  };
+
+  const processGeoJSON = async (layers = geoLayersRef.current) => {
+    const { buildings: edificios, paths: caminos, entrances: entradas } = layers;
     try {
       console.log('📍 Cargando datos geográficos modulares...');
       console.log(`  Edificios: ${edificios.features?.length || 0}`);
@@ -141,7 +163,8 @@ export default function MapScreen() {
       
       // Procesar solo los edificios del JSON modular (13 edificios)
       const geoBuildings = edificios.features.map(f => {
-        const center = calculateCenterFromPolygon(f.geometry.coordinates[0]);
+        const outerRing = f.geometry.type === 'MultiPolygon' ? f.geometry.coordinates[0][0] : f.geometry.coordinates[0];
+        const center = calculateCenterFromPolygon(outerRing);
         const id = f.properties.id;
 
         // Buscar edificio en MongoDB
@@ -217,7 +240,7 @@ export default function MapScreen() {
   const requestLocationPermission = async () => {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
-      const campusPolygon = perimetroCampus.features[0]?.geometry?.coordinates || [];
+      const campusPolygon = geoLayersRef.current.perimeter.features[0]?.geometry?.coordinates || [];
       const entradaPrincipalCoords = {
         latitude: 19.40719130839912,
         longitude: -98.12107448617152,
@@ -315,7 +338,7 @@ export default function MapScreen() {
   /**
    * Calcula la ruta dinámicamente utilizando RoutingService (OSRM, Dijkstra o Híbrida)
    */
-  const calculateAndSetRoute = useCallback(async (targetBuilding, customStartCoords = null) => {
+  const calculateAndSetRoute = useCallback(async (targetBuilding, customStartCoords = null, overrides = {}) => {
     if (!targetBuilding) return;
     setSelectedBuilding(targetBuilding);
 
@@ -340,7 +363,9 @@ export default function MapScreen() {
 
     try {
       setIsRouting(true);
-      const result = await routingService.calculateHybridRoute(startCoords, destinationPoint);
+      // Modo accesible: evita escaleras y pendientes fuertes registradas en las capas del campus.
+      const accessible = overrides.accessible ?? isAccessibilityActive;
+      const result = await routingService.calculateHybridRoute(startCoords, destinationPoint, { accessible });
       setRouteResult(result);
 
       if (navigationService) {
@@ -353,11 +378,17 @@ export default function MapScreen() {
       const sanitized = (err.message || '').replace(/key=[a-zA-Z0-9_-]+/g, 'key=REDACTED');
       console.warn('⚠️ Error al calcular la ruta:', sanitized);
       setRouteResult(null);
-      Alert.alert('Ruta no disponible', `No se pudo calcular una ruta hacia ${targetBuilding.name}.`);
+      const noAccessibleRoute = String(err.message || '').includes('No hay una ruta accesible');
+      Alert.alert(
+        'Ruta no disponible',
+        noAccessibleRoute
+          ? `No hay una ruta sin escaleras ni pendientes fuertes hacia ${targetBuilding.name}. Desactiva "Ruta Inclusiva" para ver la ruta estándar.`
+          : `No se pudo calcular una ruta hacia ${targetBuilding.name}.`
+      );
     } finally {
       setIsRouting(false);
     }
-  }, [userLocation, routingService, campusAccessService, navigationService, flyToCoordinate]);
+  }, [userLocation, routingService, campusAccessService, navigationService, flyToCoordinate, isAccessibilityActive]);
 
   const handleSearch = (query) => {
     setSearchQuery(query);
@@ -452,12 +483,13 @@ export default function MapScreen() {
     setIsAccessibilityActive(nextVal);
     Alert.alert(
       'Modo Accesibilidad',
-      nextVal 
-        ? '♿ Ruta Inclusiva activada. El mapa priorizará accesos con rampas y pasos nivelados.' 
+      nextVal
+        ? '♿ Ruta Inclusiva activada: se evitan los tramos registrados con escaleras o pendientes fuertes. Algunos caminos aún no tienen esa información.'
         : 'Ruta estándar activada.'
     );
     if (selectedBuilding) {
-      calculateAndSetRoute(selectedBuilding);
+      // Se pasa el valor nuevo explícitamente: el estado todavía no se ha actualizado aquí.
+      calculateAndSetRoute(selectedBuilding, null, { accessible: nextVal });
     }
   };
 
@@ -501,6 +533,12 @@ export default function MapScreen() {
     }
   };
 
+  // Edificios con altura (m) para la vista 3D: medida en el GeoJSON o niveles de la BD × 3.5 m.
+  const buildingsGeo = useMemo(() => {
+    const floorsById = Object.fromEntries(buildings.map((b) => [b.id, b.floors]));
+    return withBuildingHeights(geoLayers.buildings, floorsById);
+  }, [geoLayers, buildings]);
+
   // Pines de edificios (filtrados por la búsqueda) para SigmaMap
   const buildingMarkers = useMemo(
     () => filteredBuildings.map(b => ({ id: b.id, name: b.name, coordinates: b.coordinates })),
@@ -539,16 +577,17 @@ export default function MapScreen() {
         <SigmaMap
           ref={mapRef}
           style={styles.map}
-          buildings={edificios}
-          paths={caminos}
-          entrances={entradas}
-          campusBoundary={perimetroCampus}
+          buildings={buildingsGeo}
+          paths={geoLayers.paths}
+          entrances={geoLayers.entrances}
+          campusBoundary={geoLayers.perimeter}
           buildingMarkers={buildingMarkers}
           selectedBuilding={selectedBuilding?.id}
           userLocation={userLocation}
           isSimulatedUser={isSimulatedUser}
           routeResult={routeResult}
           colors={mapColors}
+          is3D={is3D}
           onBuildingPress={handleMapBuildingPress}
           onMapPress={closeInfoPanel}
         />
@@ -560,6 +599,19 @@ export default function MapScreen() {
           activeOpacity={0.8}
         >
           <LocateFixed size={22} color={theme.primary} />
+        </TouchableOpacity>
+
+        {/* Alterna la vista 2D / 3D (edificios extruidos y cámara inclinada) */}
+        <TouchableOpacity
+          style={[styles.locateButton, styles.view3DButton, { backgroundColor: is3D ? theme.primary : theme.cardBg, borderColor: theme.cardBorder }]}
+          onPress={() => setIs3D((value) => !value)}
+          activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel={is3D ? 'Cambiar a vista 2D' : 'Cambiar a vista 3D'}
+          accessibilityState={{ selected: is3D }}
+        >
+          {is3D ? <MapIcon size={20} color="#ffffff" /> : <Box size={20} color={theme.primary} />}
+          <Text style={[styles.view3DText, { color: is3D ? '#ffffff' : theme.primary }]}>{is3D ? '2D' : '3D'}</Text>
         </TouchableOpacity>
 
         {/* Barra de búsqueda flotante sobre el mapa */}
@@ -667,6 +719,15 @@ const styles = StyleSheet.create({
     left: 12,
     right: 12,
     zIndex: 50,
+  },
+  view3DButton: {
+    top: 128,
+    flexDirection: 'column',
+  },
+  view3DText: {
+    fontSize: 9,
+    fontFamily: 'Roboto-Bold',
+    marginTop: -1,
   },
   locateButton: {
     position: 'absolute',

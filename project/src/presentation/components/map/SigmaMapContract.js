@@ -51,6 +51,9 @@
  * @property {{ primary?: string, secondary?: string, path?: string, entrance?: string, perimeter?: string }} [colors]
  *   Colores del tema (ThemeContext). Implementado en nativo; web usa la paleta por defecto.
  *
+ * @property {boolean} [is3D=false]
+ *   Vista 3D: edificios extruidos con `properties.altura_m` y cámara inclinada (SIGMA_PITCH_3D).
+ *
  * @property {boolean} [interactive=true]
  *   Indica si el mapa permite manipulación por parte del usuario (pan, zoom, rotación).
  *
@@ -68,6 +71,10 @@ export const SIGMA_CAMPUS_BOUNDS = [
 ];
 
 export const SIGMA_MIN_ZOOM = 15;
+/** Inclinación de la cámara en la vista 3D (grados). */
+export const SIGMA_PITCH_3D = 55;
+/** Altura usada si un edificio no trae `altura_m` (un nivel). */
+export const SIGMA_DEFAULT_BUILDING_HEIGHT_M = 3.5;
 export const SIGMA_MAX_ZOOM = 20;
 
 /** Paleta por defecto de las capas del campus (coincide con SigmaMapWeb). */
@@ -97,5 +104,6 @@ export const SIGMA_MAP_DEFAULT_PROPS = {
   onMapPress: null,
   routeResult: null,
   colors: SIGMA_MAP_COLORS,
+  is3D: false,
   interactive: true,
 };

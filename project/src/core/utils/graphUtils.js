@@ -1,8 +1,18 @@
 // src/core/utils/graphUtils.js
+import { edgeKey } from './accessibility.js';
 
+const ACCESSIBILITY_KEYS = ['escaleras', 'rampa', 'pendiente_pct', 'superficie', 'ancho_m'];
+
+/**
+ * Construye el grafo de la red peatonal.
+ * @returns {{ graph: Record<string, string[]>, nodeCoords: Record<string, {latitude:number, longitude:number}>,
+ *             edgeAttributes: Record<string, object> }} edgeAttributes: atributos de accesibilidad por tramo
+ *             (clave edgeKey(from, to)); solo incluye tramos con algún atributo.
+ */
 export function buildGraph(features) {
   const graph = {};
   const nodeCoords = {};
+  const edgeAttributes = {};
 
   features.forEach(feature => {
     const { properties, geometry } = feature;
@@ -20,6 +30,14 @@ export function buildGraph(features) {
 
       graph[properties.from].push(properties.to);
       graph[properties.to].push(properties.from);
+
+      const attrs = {};
+      for (const key of ACCESSIBILITY_KEYS) {
+        if (properties[key] !== undefined && properties[key] !== null) attrs[key] = properties[key];
+      }
+      if (Object.keys(attrs).length > 0) {
+        edgeAttributes[edgeKey(properties.from, properties.to)] = attrs;
+      }
 
       // Si el camino es LineString y los nodos from o to no tienen coordenadas (como EP-003 o AP-003),
       // extraemos las coordenadas desde el inicio y el fin del LineString.
@@ -57,7 +75,7 @@ export function buildGraph(features) {
     }
   });
 
-  return { graph, nodeCoords };
+  return { graph, nodeCoords, edgeAttributes };
 }
 
 export function findNearestNode(coords, nodeCoords, graph) {
@@ -87,7 +105,14 @@ export function findNearestNode(coords, nodeCoords, graph) {
   return closestNode;
 }
 
-export function findRoute(graph, start, goal, nodeCoords = {}) {
+/**
+ * Dijkstra sobre el grafo del campus.
+ * @param {object} [options]
+ * @param {(from: string, to: string, baseCost: number) => number} [options.edgeCost]
+ *   Ajusta el costo de cada tramo; Infinity lo excluye (p. ej. escaleras en modo accesible).
+ */
+export function findRoute(graph, start, goal, nodeCoords = {}, options = {}) {
+  const edgeCost = typeof options.edgeCost === 'function' ? options.edgeCost : (from, to, base) => base;
   if (!graph || !start || !goal) return null;
   if (!graph[start] || !graph[goal]) return null;
 
@@ -140,7 +165,9 @@ export function findRoute(graph, start, goal, nodeCoords = {}) {
     const neighbors = graph[current] || [];
     for (const neighbor of neighbors) {
       if (unvisited.has(neighbor)) {
-        const alt = distances[current] + getDistance(current, neighbor);
+        const cost = edgeCost(current, neighbor, getDistance(current, neighbor));
+        if (!Number.isFinite(cost)) continue;
+        const alt = distances[current] + cost;
         if (alt < distances[neighbor]) {
           distances[neighbor] = alt;
           previous[neighbor] = current;

@@ -3,7 +3,9 @@ import { View, StyleSheet } from 'react-native';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { getMapTilerApiKey } from '../../../core/config/mapConfig';
-import { SIGMA_MAP_DEFAULT_PROPS } from './SigmaMapContract';
+import { SIGMA_MAP_DEFAULT_PROPS, SIGMA_PITCH_3D, SIGMA_DEFAULT_BUILDING_HEIGHT_M } from './SigmaMapContract';
+
+const BUILDING_LAYERS = ['campus-buildings-fill', 'campus-buildings-3d'];
 import { routeResultToGeoJSON } from '../../../core/utils/routeAdapters';
 
 const CAMPUS_BOUNDS = [
@@ -27,6 +29,7 @@ export const SigmaMapWeb = forwardRef(function SigmaMapWeb(
     onMapPress = null,
     interactive = true,
     routeResult = null,
+    is3D = false,
     style,
   },
   ref
@@ -39,7 +42,9 @@ export const SigmaMapWeb = forwardRef(function SigmaMapWeb(
   const onBuildingPressRef = useRef(onBuildingPress);
   const onMapPressRef = useRef(onMapPress);
 
+  const is3DRef = useRef(is3D);
   routeResultRef.current = routeResult;
+  is3DRef.current = is3D;
   onBuildingPressRef.current = onBuildingPress;
   onMapPressRef.current = onMapPress;
 
@@ -168,12 +173,14 @@ export const SigmaMapWeb = forwardRef(function SigmaMapWeb(
       setupLayers(map);
       updateData(map);
       updateRouteData(map, routeResultRef.current);
+      apply3DMode(map, is3DRef.current, false);
     });
 
     map.on('click', (e) => {
       // Un clic sobre un edificio lo maneja el handler de la capa; no es un clic en "zona libre".
-      if (map.getLayer('campus-buildings-fill')) {
-        const hits = map.queryRenderedFeatures(e.point, { layers: ['campus-buildings-fill'] });
+      const visibleBuildingLayers = BUILDING_LAYERS.filter((layerId) => map.getLayer(layerId));
+      if (visibleBuildingLayers.length > 0) {
+        const hits = map.queryRenderedFeatures(e.point, { layers: visibleBuildingLayers });
         if (hits.length > 0) return;
       }
       if (onMapPressRef.current) {
@@ -274,6 +281,25 @@ export const SigmaMapWeb = forwardRef(function SigmaMapWeb(
       },
     });
 
+    // 3b. Edificios en 3D (oculta hasta activar la vista 3D)
+    map.addLayer({
+      id: 'campus-buildings-3d',
+      type: 'fill-extrusion',
+      source: 'campus-buildings-source',
+      layout: { visibility: 'none' },
+      paint: {
+        'fill-extrusion-color': [
+          'case',
+          ['boolean', ['feature-state', 'selected'], false],
+          '#0284c7',
+          '#5b7c99',
+        ],
+        'fill-extrusion-height': ['coalesce', ['get', 'altura_m'], SIGMA_DEFAULT_BUILDING_HEIGHT_M],
+        'fill-extrusion-base': 0,
+        'fill-extrusion-opacity': 0.85,
+      },
+    });
+
     // 4. Fuente y Capa de Entradas/Cruces
     map.addSource('campus-entrances-source', {
       type: 'geojson',
@@ -296,23 +322,34 @@ export const SigmaMapWeb = forwardRef(function SigmaMapWeb(
     // 5. Inicialización de la Capa de Ruta Dinámica
     ensureRouteLayer(map, null);
 
-    // Eventos de interacción sobre edificios
-    map.on('click', 'campus-buildings-fill', (e) => {
-      if (e.features && e.features.length > 0) {
-        const feature = e.features[0];
-        if (onBuildingPressRef.current) {
-          onBuildingPressRef.current(feature);
+    // Eventos de interacción sobre edificios (planos o en 3D)
+    BUILDING_LAYERS.forEach((layerId) => {
+      map.on('click', layerId, (e) => {
+        if (e.features && e.features.length > 0 && onBuildingPressRef.current) {
+          onBuildingPressRef.current(e.features[0]);
         }
-      }
+      });
+      map.on('mouseenter', layerId, () => {
+        map.getCanvas().style.cursor = 'pointer';
+      });
+      map.on('mouseleave', layerId, () => {
+        map.getCanvas().style.cursor = '';
+      });
     });
+  };
 
-    map.on('mouseenter', 'campus-buildings-fill', () => {
-      map.getCanvas().style.cursor = 'pointer';
-    });
-
-    map.on('mouseleave', 'campus-buildings-fill', () => {
-      map.getCanvas().style.cursor = '';
-    });
+  /** Alterna edificios planos/3D e inclina la cámara. */
+  const apply3DMode = (map, enabled, animate = true) => {
+    if (!map || !isLoadedRef.current) return;
+    if (map.getLayer('campus-buildings-3d')) {
+      map.setLayoutProperty('campus-buildings-3d', 'visibility', enabled ? 'visible' : 'none');
+    }
+    if (map.getLayer('campus-buildings-fill')) {
+      map.setLayoutProperty('campus-buildings-fill', 'visibility', enabled ? 'none' : 'visible');
+    }
+    const camera = { pitch: enabled ? SIGMA_PITCH_3D : 0, bearing: enabled ? map.getBearing() : 0 };
+    if (animate) map.easeTo({ ...camera, duration: 800 });
+    else map.jumpTo(camera);
   };
 
   const updateData = (map) => {
@@ -368,6 +405,11 @@ export const SigmaMapWeb = forwardRef(function SigmaMapWeb(
       }
     });
   }, [selectedBuilding, buildings]);
+
+  // Vista 3D
+  useEffect(() => {
+    apply3DMode(mapInstanceRef.current, is3D, true);
+  }, [is3D]);
 
   return (
     <View style={[styles.container, style]}>

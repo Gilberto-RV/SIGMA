@@ -1,5 +1,5 @@
 import { OsrmClient } from '../../infrastructure/http/OsrmClient.js';
-import { RoutingService, concatenateCoordinates } from './RoutingService.js';
+import { RoutingService, concatenateCoordinates, buildDirectSegment } from './RoutingService.js';
 import { DijkstraRoutingService } from './DijkstraRoutingService.js';
 import { CampusAccessService } from './CampusAccessService.js';
 import { OSRM_BASE_URL } from '../config/mapConfig.js';
@@ -79,5 +79,33 @@ if (autoCampusRoute.provider !== 'dijkstra') throw new Error('Falló autodetecci
 // 4. Autodetección Externo -> Externo
 const autoExternalRoute = await service.calculateHybridRoute(extOrigin, extDest);
 if (autoExternalRoute.provider !== 'osrm') throw new Error('Falló autodetección Externo -> Externo');
+
+// 5. OSRM caído: tramo directo de respaldo + Dijkstra, con aviso en metadata
+const failingOsrm = { async route() { throw new Error('[OsrmClient] Error de red simulado'); } };
+const offlineService = new RoutingService({
+  osrmClient: failingOsrm,
+  dijkstraRoutingService: mockDijkstraService,
+  campusAccessService,
+});
+const fallbackRoute = await offlineService.calculateHybridRoute(extOrigin, intDest);
+if (fallbackRoute.provider !== 'hybrid') throw new Error('El respaldo debe seguir siendo una ruta híbrida');
+if (fallbackRoute.metadata.segments[0].provider !== 'direct') throw new Error('El primer tramo debe ser directo cuando OSRM falla');
+if (!fallbackRoute.metadata.warnings.includes('external_route_unavailable')) throw new Error('Falta el aviso external_route_unavailable');
+if (fallbackRoute.metadata.segments[1].provider !== 'dijkstra') throw new Error('El tramo del campus debe seguir siendo Dijkstra');
+
+// 6. Sin respaldo permitido, el error se propaga
+let propagated = false;
+try {
+  await offlineService.calculateHybridRoute(extOrigin, intDest, { allowDirectFallback: false });
+} catch (e) {
+  propagated = e.code === 'ROUTING_SEGMENT_FAILED';
+}
+if (!propagated) throw new Error('Con allowDirectFallback=false el fallo de OSRM debe propagarse');
+
+// 7. buildDirectSegment: distancia y tiempo a pie coherentes; null si un extremo no es coordenada
+const direct = buildDirectSegment({ latitude: 19.4, longitude: -98.12 }, { latitude: 19.401, longitude: -98.12 });
+if (Math.abs(direct.distanceMeters - 111) > 2) throw new Error(`Distancia directa inesperada: ${direct.distanceMeters}`);
+if (Math.abs(direct.durationSeconds - direct.distanceMeters / 1.3) > 1) throw new Error('Duración a pie inesperada');
+if (buildDirectSegment('EP-003', { latitude: 19.4, longitude: -98.12 }) !== null) throw new Error('Debe devolver null con extremos no coordenados');
 
 console.log('✅ Todos los tests unitarios de autoselección de accesos en RoutingService pasaron exitosamente!');
