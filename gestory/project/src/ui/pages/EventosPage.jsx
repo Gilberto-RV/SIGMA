@@ -65,7 +65,7 @@ export function EventosPage() {
     if (result.isConfirmed) {
       try {
         await eventUseCases.deleteEvent(event.id);
-        await loadEventos();
+        await loadEvents();
         Swal.fire('Eliminado', 'El evento ha sido eliminado', 'success');
       } catch (error) {
         console.error('Error eliminando evento:', error);

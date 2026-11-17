@@ -32,9 +32,6 @@ export class BuildingUseCases {
   }
 
   getBuildingDisponibles(buildings) {
-    console.log('Todos los edificios:', buildings);
-    console.log('Disponibles:', buildingUseCases.getBuildingDisponibles(buildings));
-
     return buildings.filter(building => building.isDisponible());
   }
 }

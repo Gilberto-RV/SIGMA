@@ -38,7 +38,7 @@ La API principal del proyecto maneja usuarios, autenticación, edificios, evento
 
 - `npm run load-buildings` → importa el GeoJSON de `project/assets/geo/caminos.json` y sincroniza la colección de edificios.
 
-- `npm run create-admin` → crea o actualiza el usuario `test@gmail.com` como administrador.
+- `npm run create-admin` → crea o actualiza un administrador con `ADMIN_EMAIL` y `ADMIN_PASSWORD` (mínimo 12 caracteres). Es la única forma de crear administradores.
 
 - `npm run verify-consistency` → comprueba relaciones entre eventos, edificios y los datos de analíticas/gráficas.
 

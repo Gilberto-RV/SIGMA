@@ -115,7 +115,6 @@ export default function RegisterScreen() {
               >
                 <Picker.Item label="Estudiante" value="estudiante" />
                 <Picker.Item label="Profesor" value="profesor" />
-                <Picker.Item label="Administrador" value="administrador" />
               </Picker>
             </View>
 

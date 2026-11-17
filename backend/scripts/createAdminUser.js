@@ -1,45 +1,44 @@
 // scripts/createAdminUser.js
-import dotenv from 'dotenv';
+// Única vía para crear administradores (el registro público no permite ese rol).
+//
+// Uso:
+//   ADMIN_EMAIL=admin@ejemplo.mx ADMIN_PASSWORD='una-contraseña-larga' npm run create-admin
+// o definir ADMIN_EMAIL y ADMIN_PASSWORD en backend/.env (solo localmente; no subirlo a git).
+import 'dotenv/config';
 import mongoose from 'mongoose';
 import User from '../models/Auth.js';
 
-dotenv.config();
+const MIN_PASSWORD_LENGTH = 12;
 
 const createAdminUser = async () => {
+  const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+  const password = process.env.ADMIN_PASSWORD;
+
+  if (!email || !password) {
+    console.error('❌ Define ADMIN_EMAIL y ADMIN_PASSWORD (variables de entorno o backend/.env).');
+    process.exit(1);
+  }
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    console.error(`❌ ADMIN_PASSWORD debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres.`);
+    process.exit(1);
+  }
+
   try {
-    // Conectar a MongoDB
     await mongoose.connect(process.env.MONGO_URI);
     console.log('✅ Conectado a MongoDB');
 
-    // Verificar si el usuario ya existe
-    const existingUser = await User.findOne({ email: 'test@gmail.com' });
-    
+    const existingUser = await User.findOne({ email });
     if (existingUser) {
-      console.log('⚠️  El usuario test@gmail.com ya existe');
-      console.log('   Actualizando rol a administrador...');
       existingUser.role = 'administrador';
-      existingUser.password = 'admin123'; // Se hasheará automáticamente
+      existingUser.password = password; // se hashea en el pre-save
       await existingUser.save();
-      console.log('✅ Usuario actualizado a administrador');
+      console.log(`✅ ${email} actualizado como administrador (contraseña restablecida).`);
     } else {
-      // Crear nuevo usuario administrador
-      const adminUser = new User({
-        email: 'test@gmail.com',
-        password: 'admin123',
-        role: 'administrador'
-      });
-      
-      await adminUser.save();
-      console.log('✅ Usuario administrador creado exitosamente');
+      await new User({ email, password, role: 'administrador' }).save();
+      console.log(`✅ Administrador ${email} creado.`);
     }
 
-    // Verificar el usuario creado
-    const user = await User.findOne({ email: 'test@gmail.com' });
-    console.log('\n📋 Información del usuario:');
-    console.log(`   Email: ${user.email}`);
-    console.log(`   Rol: ${user.role}`);
-    console.log(`   ID: ${user._id}`);
-
+    await mongoose.disconnect();
     process.exit(0);
   } catch (error) {
     console.error('❌ Error:', error.message);
@@ -48,4 +47,3 @@ const createAdminUser = async () => {
 };
 
 createAdminUser();
-

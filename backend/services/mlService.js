@@ -3,12 +3,19 @@ import axios from 'axios';
 
 const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://localhost:8000';
 
+// Cliente del servicio ML: envía la clave compartida (ML_API_KEY) y no espera indefinidamente.
+const mlClient = axios.create({
+  baseURL: ML_SERVICE_URL,
+  timeout: 10000,
+  headers: process.env.ML_API_KEY ? { 'X-API-Key': process.env.ML_API_KEY } : {},
+});
+
 /**
  * Predecir asistencia a un evento
  */
 export const predictEventAttendance = async (eventData) => {
   try {
-    const response = await axios.post(`${ML_SERVICE_URL}/predict/attendance`, {
+    const response = await mlClient.post('/predict/attendance', {
       viewCount: eventData.viewCount || 0,
       uniqueVisitors: eventData.uniqueVisitors || 0,
       dayOfWeek: eventData.dayOfWeek,
@@ -57,7 +64,7 @@ function calculateSimpleAttendancePrediction(eventData) {
  */
 export const predictMobilityDemand = async (mobilityData) => {
   try {
-    const response = await axios.post(`${ML_SERVICE_URL}/predict/mobility`, {
+    const response = await mlClient.post('/predict/mobility', {
       viewCount: mobilityData.viewCount || 0,
       uniqueVisitors: mobilityData.uniqueVisitors || 0,
       dayOfWeek: mobilityData.dayOfWeek,
@@ -105,7 +112,7 @@ function calculateSimpleMobilityPrediction(mobilityData) {
  */
 export const predictSaturation = async (saturationData) => {
   try {
-    const response = await axios.post(`${ML_SERVICE_URL}/predict/saturation`, {
+    const response = await mlClient.post('/predict/saturation', {
       viewCount: saturationData.viewCount || 0,
       uniqueVisitors: saturationData.uniqueVisitors || 0,
       dayOfWeek: saturationData.dayOfWeek,
@@ -178,7 +185,7 @@ function getSaturationLabel(level) {
  */
 export const checkMLServiceHealth = async () => {
   try {
-    const response = await axios.get(`${ML_SERVICE_URL}/health`);
+    const response = await mlClient.get('/health');
     return {
       available: true,
       modelsLoaded: response.data.models_loaded || {},

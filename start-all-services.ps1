@@ -183,9 +183,8 @@ Write-Host "   - App Movil (Expo):   Escanea el QR en la ventana de Expo" -Foreg
 Write-Host "   - Servicio ML:        http://localhost:8000" -ForegroundColor Cyan
 Write-Host "   - ML Docs (Swagger):  http://localhost:8000/docs" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "Credenciales de administrador:" -ForegroundColor White
-Write-Host "   - Email:    test@gmail.com" -ForegroundColor Yellow
-Write-Host "   - Password: admin123" -ForegroundColor Yellow
+Write-Host "Administradores:" -ForegroundColor White
+Write-Host "   - Crealos con: cd backend; `$env:ADMIN_EMAIL='...'; `$env:ADMIN_PASSWORD='...'; npm run create-admin" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "Para detener todos los servicios, cierra las ventanas de PowerShell" -ForegroundColor White
 Write-Host ""

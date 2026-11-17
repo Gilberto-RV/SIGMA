@@ -10,7 +10,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Picker } from '@react-native-picker/picker';
 import { COLORS } from '../../src/core/constants/colors';
 import { DIMENSIONS } from '../../src/core/constants/dimensions';
 import { serviceContainer } from '../../src/infrastructure/di/ServiceContainer';
@@ -22,7 +21,7 @@ export default function ProfileScreen() {
   const [isUpdating, setIsUpdating] = useState(false);
   const router = useRouter();
   const authUseCases = serviceContainer.get('authUseCases');
-  const { logout, updateProfile, deleteAccount } = useAuth(); // usa hook
+  const { logout, updateProfile, changePassword, deleteAccount } = useAuth();
 
   useEffect(() => {
     loadUser();
@@ -33,7 +32,7 @@ export default function ProfileScreen() {
       const currentUser = await authUseCases.getCurrentUser();
       if (currentUser) {
         setUser(currentUser);
-        setEditableUser({ ...currentUser, password: '' }); // No mostrar password real
+        setEditableUser({ ...currentUser, password: '', currentPassword: '' }); // No mostrar password real
       } else {
         router.replace('/auth');
       }
@@ -67,21 +66,22 @@ export default function ProfileScreen() {
     try {
       setIsUpdating(true);
 
-      const dataToUpdate = {
-        avatar: editableUser.avatar,
-        role: editableUser.role,
-      };
-
-      if (editableUser.password && editableUser.password.trim() !== '') {
-        dataToUpdate.password = editableUser.password.trim();
+      const newPassword = editableUser.password?.trim();
+      if (newPassword && !editableUser.currentPassword) {
+        Alert.alert('Contraseña', 'Escribe tu contraseña actual para cambiarla.');
+        return;
       }
 
-      await updateProfile(dataToUpdate);
+      // El rol no se cambia desde el perfil: lo asigna el registro o un administrador.
+      await updateProfile({ avatar: editableUser.avatar });
+      if (newPassword) {
+        await changePassword(editableUser.currentPassword, newPassword);
+      }
       Alert.alert('Éxito', 'Perfil actualizado correctamente');
       await loadUser();
     } catch (error) {
       console.error('Error al actualizar perfil:', error);
-      Alert.alert('Error', 'No se pudo actualizar el perfil');
+      Alert.alert('Error', error?.message || 'No se pudo actualizar el perfil');
     } finally {
       setIsUpdating(false);
     }
@@ -119,17 +119,16 @@ export default function ProfileScreen() {
           <Text style={styles.disabledInput}>{editableUser.email}</Text>
 
           <Text style={styles.label}>Rol</Text>
-          <View style={styles.pickerContainer}>
-            <Picker
-              selectedValue={editableUser.role}
-              onValueChange={(itemValue) =>
-                setEditableUser({ ...editableUser, role: itemValue })
-              }
-            >
-              <Picker.Item label="Estudiante" value="estudiante" />
-              <Picker.Item label="Profesor" value="profesor" />
-            </Picker>
-          </View>
+          <Text style={styles.disabledInput}>{editableUser.role}</Text>
+
+          <Text style={styles.label}>Contraseña actual</Text>
+          <TextInput
+            placeholder="Necesaria solo para cambiar la contraseña"
+            secureTextEntry
+            value={editableUser.currentPassword}
+            onChangeText={(text) => setEditableUser({ ...editableUser, currentPassword: text })}
+            style={styles.input}
+          />
 
           <Text style={styles.label}>Nueva Contraseña</Text>
           <TextInput

@@ -244,22 +244,16 @@ npm run verify-consistency
 
 ## Credenciales de administrador
 
-### Usuario Administrador Principal
-- **Correo:** `test@gmail.com`
-- **Contraseña:** `admin123`
+El registro público solo permite los roles `estudiante` y `profesor`. Los administradores se crean o actualizan únicamente con el script del backend, indicando correo y contraseña (mínimo 12 caracteres):
 
-**Nota**: Este usuario tiene acceso completo al panel de administración, incluyendo el Dashboard de Big Data.
-
-**Para crear/actualizar el usuario administrador:**
 ```powershell
 cd backend
+$env:ADMIN_EMAIL = "admin@tu-dominio.mx"
+$env:ADMIN_PASSWORD = "una-contraseña-larga-y-única"
 npm run create-admin
 ```
 
-### Crear nuevos usuarios administradores
-Para crear un nuevo usuario administrador, usa el endpoint:
-- POST `http://<IP_LOCAL>:5000/api/auth/register`
-- Body: `{ "email": "tu-email@ejemplo.com", "password": "tu-contraseña", "role": "administrador" }`
+Si en tu base de datos existe el antiguo administrador de pruebas `test@gmail.com`, ejecuta el script con ese correo y una contraseña nueva para reemplazar la anterior.
 
 **Endpoints útiles:**
 - POST `/auth/login` → `{ email, password }`

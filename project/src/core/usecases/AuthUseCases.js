@@ -29,6 +29,10 @@ export class AuthUseCases {
     return this.authRepository.updateProfile(userData);
   }
 
+  async changePassword(currentPassword, newPassword) {
+    return this.authRepository.changePassword(currentPassword, newPassword);
+  }
+
   async deleteAccount() {
     return this.authRepository.deleteAccount();
   }
