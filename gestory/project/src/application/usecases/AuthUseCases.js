@@ -63,6 +63,10 @@ export class AuthUseCases {
     const response = await this.authRepository.updateProfile(userData);
     const updatedUser = new User(response.user);
     localStorage.setItem('currentUser', JSON.stringify(updatedUser));
+    if (response.token) {
+      localStorage.setItem('authToken', response.token);
+      setAuthToken(response.token);
+    }
     return updatedUser;
   }
 

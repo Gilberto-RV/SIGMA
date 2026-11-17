@@ -174,14 +174,13 @@ export default function MapScreen() {
   };
 
   const loadInitialData = async () => {
+    // El mapa no depende de los eventos: se muestra de inmediato y el carrusel se llena después.
+    setIsLoading(false);
     try {
       const eventsData = await eventUseCases.getActiveEvents();
       setEvents(eventsData);
     } catch (error) {
-      Alert.alert('Error', 'No se pudieron cargar los datos');
-    }
-    finally {
-      setIsLoading(false);
+      console.warn('No se pudieron cargar los eventos:', error?.message);
     }
   };
 

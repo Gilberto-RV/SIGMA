@@ -48,12 +48,9 @@ export class HttpAuthRepository extends AuthRepository {
     const token = await AsyncStorage.getItem('authToken');
     return !!token;
   }
+  // El backend solo permite cambiar el avatar desde el perfil (no el rol ni el correo).
   async updateProfile(userData) {
-    const cleanedData = Object.fromEntries(
-        Object.entries(userData).filter(([_, v]) => v !== undefined && v !== '')
-    );
-
-    const { data } = await api.put('/auth/me', cleanedData);
+    const { data } = await api.put('/auth/me', { avatar: userData.avatar ?? '' });
 
     if (!data?.user) {
         throw new Error('Usuario no retornado desde backend');
@@ -67,6 +64,14 @@ export class HttpAuthRepository extends AuthRepository {
     await AsyncStorage.setItem('currentUser', JSON.stringify(data.user));
     return User.fromJSON(data.user);
   }
+  async changePassword(currentPassword, newPassword) {
+    try {
+      await api.put('/auth/change-password', { currentPassword, newPassword });
+    } catch (error) {
+      throw new Error(error.response?.data?.error || error.response?.data?.details?.[0]?.message || 'No se pudo cambiar la contraseña');
+    }
+  }
+
   async deleteAccount() {
     await api.delete('/auth/me');
     await this.logout();

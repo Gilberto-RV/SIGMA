@@ -10,8 +10,14 @@ import * as batchService from '../services/batchProcessingService.js';
  * - Limpieza semanal: Domingos a las 3:00 AM
  */
 
+// Hora del campus (Apizaco, Tlaxcala). Antes estaba en America/Caracas.
+const TIMEZONE = process.env.CRON_TIMEZONE || 'America/Mexico_City';
+
+// node-cron 4: createTask crea la tarea sin iniciarla (equivale a `scheduled: false` de la v3);
+// se inicia en startScheduledJobs() solo si ENABLE_BATCH_PROCESSING=true.
+
 // Procesamiento diario a las 2:00 AM
-const dailyProcessingJob = cron.schedule('0 2 * * *', async () => {
+const dailyProcessingJob = cron.createTask('0 2 * * *', async () => {
   console.log('⏰ Ejecutando procesamiento diario programado...');
   try {
     await batchService.runBatchProcessing();
@@ -19,13 +25,10 @@ const dailyProcessingJob = cron.schedule('0 2 * * *', async () => {
   } catch (error) {
     console.error('❌ Error en procesamiento diario programado:', error);
   }
-}, {
-  scheduled: false, // No iniciar automáticamente, se debe iniciar manualmente
-  timezone: "America/Caracas"
-});
+}, { name: 'procesamiento-diario', timezone: TIMEZONE, noOverlap: true });
 
 // Limpieza semanal los domingos a las 3:00 AM
-const weeklyCleanupJob = cron.schedule('0 3 * * 0', async () => {
+const weeklyCleanupJob = cron.createTask('0 3 * * 0', async () => {
   console.log('⏰ Ejecutando limpieza semanal programada...');
   try {
     await batchService.cleanOldData(90);
@@ -33,10 +36,7 @@ const weeklyCleanupJob = cron.schedule('0 3 * * 0', async () => {
   } catch (error) {
     console.error('❌ Error en limpieza semanal programada:', error);
   }
-}, {
-  scheduled: false,
-  timezone: "America/Caracas"
-});
+}, { name: 'limpieza-semanal', timezone: TIMEZONE, noOverlap: true });
 
 /**
  * Iniciar todos los trabajos programados

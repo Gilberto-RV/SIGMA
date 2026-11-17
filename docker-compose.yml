@@ -1,44 +1,53 @@
-version: '3.8'
+# SIGMA-BULL: backend, servicio ML y panel Gestory.
+# Variables: copia .env.example a .env (en esta carpeta) y complétalo. No hay secretos por defecto.
+#   docker compose up --build
+# Los modelos ML deben existir en backend/ml-service/models (npm run ml:train).
 
 services:
-  # Servicio Backend Node.js / Express
+  # API Node.js / Express
   backend:
     build:
       context: ./backend
-      dockerfile: Dockerfile
-    container_name: innovatec-backend
+    container_name: sigma-backend
     restart: unless-stopped
     ports:
       - "5000:5000"
     environment:
+      - NODE_ENV=production
       - PORT=5000
-      - MONGO_URI=${MONGO_URI}
-      - JWT_SECRET=${JWT_SECRET:-innova_jwt_secret_2026}
-      - ENABLE_BATCH_PROCESSING=true
+      - MONGO_URI=${MONGO_URI:?Define MONGO_URI en .env}
+      - JWT_SECRET=${JWT_SECRET:?Define JWT_SECRET en .env}
+      - ML_API_KEY=${ML_API_KEY:?Define ML_API_KEY en .env}
       - ML_SERVICE_URL=http://ml-service:8000
+      - ENABLE_BATCH_PROCESSING=true
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173}
     depends_on:
       - ml-service
 
-  # Servicio de Machine Learning (FastAPI / Python)
+  # Servicio de Machine Learning (FastAPI). Sin puerto publicado: solo lo usa el backend.
   ml-service:
     build:
       context: ./backend/ml-service
-      dockerfile: Dockerfile
-    container_name: innovatec-ml-service
+    container_name: sigma-ml-service
     restart: unless-stopped
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     environment:
       - ML_PORT=8000
       - ML_HOST=0.0.0.0
-      - MONGO_URI=${MONGO_URI}
+      - MONGO_URI=${MONGO_URI:?Define MONGO_URI en .env}
+      - ML_API_KEY=${ML_API_KEY:?Define ML_API_KEY en .env}
+    volumes:
+      - ./backend/ml-service/models:/app/models
 
-  # Panel de Administración Web (Vite + React / Nginx)
+  # Panel de administración (Vite + React servido por Nginx)
   panel-admin:
     build:
       context: ./gestory/project
-      dockerfile: Dockerfile
-    container_name: innovatec-panel-admin
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:5000/api}
+        VITE_MAPTILER_API_KEY: ${VITE_MAPTILER_API_KEY:-}
+    container_name: sigma-panel-admin
     restart: unless-stopped
     ports:
       - "5173:80"

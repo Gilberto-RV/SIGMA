@@ -1,7 +1,9 @@
 # api.py
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+import hmac
 import joblib
 import numpy as np
 import pandas as pd
@@ -9,21 +11,36 @@ import warnings
 from datetime import datetime
 import json
 import os
-from config import MODELS_DIR
+from config import MODELS_DIR, ML_API_KEY, ML_CORS_ORIGINS
 
 # Silenciar advertencias de feature names de scikit-learn
 warnings.filterwarnings('ignore', category=UserWarning)
 
-app = FastAPI(title="ML Service - INNOVATEC", version="1.0.0")
+app = FastAPI(title="ML Service - SIGMA-BULL", version="1.0.0")
 
-# CORS
+# CORS: por defecto ningún origen de navegador (el servicio lo consume el backend).
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # En producción, especifica los orígenes permitidos
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=ML_CORS_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "X-API-Key"],
 )
+
+# Rutas que requieren la clave compartida con el backend. "/" y "/health" quedan abiertas.
+PROTECTED_PREFIXES = ("/predict", "/model")
+
+if not ML_API_KEY:
+    print("⚠️  ML_API_KEY no está definida: /predict y /model quedan sin protección (solo desarrollo).")
+
+
+@app.middleware("http")
+async def require_api_key(request: Request, call_next):
+    if ML_API_KEY and request.method != "OPTIONS" and request.url.path.startswith(PROTECTED_PREFIXES):
+        provided = request.headers.get("x-api-key", "")
+        if not hmac.compare_digest(provided.encode(), ML_API_KEY.encode()):
+            return JSONResponse(status_code=401, content={"detail": "API key inválida o ausente"})
+    return await call_next(request)
 
 # Cargar modelos al iniciar
 attendance_model = None

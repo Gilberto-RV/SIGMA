@@ -15,13 +15,9 @@ export class AuthRepository {
     return response.data;
   }
 
-  async refreshToken() {
-    const response = await httpClient.post('/auth/refresh');
-    return response.data;
-  }
-
+  // El backend solo permite actualizar el avatar; el correo y el rol no se cambian desde el perfil.
   async updateProfile(userData) {
-    const response = await httpClient.put('/auth/profile', userData);
+    const response = await httpClient.put('/auth/me', { avatar: userData.avatar ?? '' });
     return response.data;
   }
 

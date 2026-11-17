@@ -14,6 +14,10 @@ export const useAuth = () => {
     return await authUseCases.updateProfile(userData);
   }, []);
 
+  const changePassword = useCallback(async (currentPassword, newPassword) => {
+    return await authUseCases.changePassword(currentPassword, newPassword);
+  }, []);
+
   const deleteAccount = useCallback(async () => {
     return await authUseCases.deleteAccount();
   }, []);
@@ -21,6 +25,7 @@ export const useAuth = () => {
   return {
     logout,
     updateProfile,
+    changePassword,
     deleteAccount,
   };
 };

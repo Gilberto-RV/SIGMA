@@ -20,6 +20,8 @@ const API_URL = getBaseUrl();
 
 const api = axios.create({
   baseURL: API_URL,
+  // Sin timeout, una petición a un backend apagado podía colgar la app varios minutos.
+  timeout: 8000,
   headers: {
     'Content-Type': 'application/json',
   },

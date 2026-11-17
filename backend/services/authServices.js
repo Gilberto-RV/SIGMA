@@ -1,13 +1,19 @@
 // services/authServices.js
-import User from '../models/Auth.js';
 import jwt from 'jsonwebtoken';
+import User from '../models/Auth.js';
+import { getJwtSecret } from '../config/env.js';
 
-const generateToken = (userId, role) => {
-  const jwtSecret = process.env.JWT_SECRET || 'clave_secreta';
-  return jwt.sign({ userId, role }, jwtSecret, {
-    expiresIn: '2h',
-  });
-};
+/** Error con código HTTP para que los controladores respondan sin adivinar. */
+export class AuthError extends Error {
+  constructor(message, status = 400) {
+    super(message);
+    this.name = 'AuthError';
+    this.status = status;
+  }
+}
+
+const generateToken = (userId, role) =>
+  jwt.sign({ userId, role }, getJwtSecret(), { expiresIn: '2h' });
 
 const formatUser = (user) => ({
   id: user._id,
@@ -16,55 +22,57 @@ const formatUser = (user) => ({
   avatar: user.avatar,
 });
 
-export const registerUser = async ({ email, password, role = 'estudiante', avatar }) => {
+/**
+ * Registra un usuario. El rol ya viene validado por registerSchema
+ * (solo `estudiante` o `profesor`); los administradores se crean con scripts/createAdminUser.js.
+ */
+export const registerUser = async ({ email, password, avatar, role = 'estudiante' }) => {
   const existingUser = await User.findOne({ email });
-  if (existingUser) throw new Error('El usuario ya existe');
+  if (existingUser) throw new AuthError('El usuario ya existe', 409);
 
-  const user = new User({ email, password, role, avatar });
+  const user = new User({ email, password, avatar, role });
   await user.save();
 
-  const token = generateToken(user._id, user.role);
-  return { token, user: formatUser(user) };
+  return { token: generateToken(user._id, user.role), user: formatUser(user) };
 };
 
 export const loginUser = async ({ email, password }) => {
   const user = await User.findOne({ email }).select('+password');
   if (!user || !(await user.comparePassword(password))) {
-    throw new Error('Correo o contraseña inválidos');
+    throw new AuthError('Correo o contraseña inválidos', 401);
   }
-
-  const token = generateToken(user._id, user.role);
-  return { token, user: formatUser(user) };
+  return { token: generateToken(user._id, user.role), user: formatUser(user) };
 };
 
-export const updateUser = async (userId, { password, role, avatar }) => {
+export const getUserById = async (userId) => {
   const user = await User.findById(userId);
-  if (!user) throw new Error('Usuario no encontrado');
+  if (!user) throw new AuthError('Usuario no encontrado', 404);
+  return formatUser(user);
+};
 
-  let updated = false;
+/** Actualiza datos de perfil. El rol y la contraseña no se cambian aquí. */
+export const updateUser = async (userId, { avatar }) => {
+  const user = await User.findById(userId);
+  if (!user) throw new AuthError('Usuario no encontrado', 404);
 
-  if (password?.trim()) {
-    user.password = password;
-    updated = true;
-  }
-  if (role && role !== user.role) {
-    user.role = role;
-    updated = true;
-  }
-  if (avatar && avatar !== user.avatar) {
-    user.avatar = avatar;
-    updated = true;
-  }
-
-  if (!updated) throw new Error('No se proporcionaron cambios válidos');
-
+  user.avatar = avatar;
   await user.save();
 
-  const newToken = generateToken(user._id, user.role);
-  return { updatedUser: formatUser(user), newToken };
+  return { updatedUser: formatUser(user), newToken: generateToken(user._id, user.role) };
+};
+
+/** Cambia la contraseña verificando la actual (un token robado no basta para cambiarla). */
+export const changePassword = async (userId, { currentPassword, newPassword }) => {
+  const user = await User.findById(userId).select('+password');
+  if (!user) throw new AuthError('Usuario no encontrado', 404);
+  if (!(await user.comparePassword(currentPassword))) {
+    throw new AuthError('La contraseña actual es incorrecta', 401);
+  }
+  user.password = newPassword;
+  await user.save();
 };
 
 export const deleteUser = async (userId) => {
   const result = await User.findByIdAndDelete(userId);
-  if (!result) throw new Error('Usuario no encontrado');
+  if (!result) throw new AuthError('Usuario no encontrado', 404);
 };

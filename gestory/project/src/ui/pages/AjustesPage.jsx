@@ -15,7 +15,7 @@ export function AjustesPage() {
   const [activeTab, setActiveTab] = useState('perfil');
   const [loading, setLoading] = useState(false);
 
-  const { register: registerProfile, handleSubmit: handleSubmitProfile, formState: { errors: errorsProfile } } = useForm();
+  const { register: registerProfile, handleSubmit: handleSubmitProfile } = useForm();
   const { register: registerPassword, handleSubmit: handleSubmitPassword, formState: { errors: errorsPassword }, reset: resetPassword } = useForm();
 
   useEffect(() => {
@@ -106,18 +106,13 @@ export function AjustesPage() {
                   />
                 </div>
 
+                {/* El correo identifica la cuenta y no se puede cambiar desde aquí */}
                 <Input
                   label="Correo electrónico"
                   type="email"
                   defaultValue={currentUser.email}
-                  error={errorsProfile.email?.message}
-                  {...registerProfile('email', {
-                    required: 'El correo es requerido',
-                    pattern: {
-                      value: /^\S+@\S+$/i,
-                      message: 'Formato de correo inválido'
-                    }
-                  })}
+                  disabled
+                  readOnly
                 />
 
                 <Input

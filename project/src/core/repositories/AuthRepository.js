@@ -25,6 +25,10 @@ export class AuthRepository {
     throw new Error('Method not implemented');
   }
 
+  async changePassword(currentPassword, newPassword) {
+    throw new Error('Method not implemented');
+  }
+
   async deleteAccount() {
     throw new Error('Method not implemented');
   }
