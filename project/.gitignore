@@ -28,8 +28,23 @@ yarn-error.*
 *.pem
 
 # local env files
-.env*.local
 .env
+.env.local
+.env.*.local
+.env*.local
+.env.*
+!.env.example
+!.env.*.example
+
 
 # typescript
 *.tsbuildinfo
+
+
+# expo prebuild (Continuous Native Generation) — se regenera con `npx expo prebuild`
+/android
+/ios
+
+# copiados por scripts/sync-maplibre-worker.js en postinstall/predev
+/public/maplibre-gl-worker.mjs
+/public/maplibre-gl-shared.mjs

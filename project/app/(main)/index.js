@@ -1,13 +1,13 @@
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { View, StyleSheet, Text, Dimensions, Alert, ScrollView, Animated, Image, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import MapView, { Marker, Polyline, Polygon, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
 import edificios from '../../assets/geo/Edificios.json';
 import caminos from '../../assets/geo/caminos.json';
 import entradas from '../../assets/geo/Entradas.json';
 import perimetroCampus from '../../assets/geo/PerimetroCampus.json';
-import { buildGraph, findRoute, findNearestNode } from '../../src/core/utils/graphUtils';
+import { buildGraph } from '../../src/core/utils/graphUtils';
+import { SigmaMap } from '../../src/presentation/components/map';
 
 import MapHeader from '../../src/presentation/components/MapHeader';
 import SearchBar from '../../src/presentation/components/SearchBar';
@@ -17,19 +17,19 @@ import { serviceContainer } from '../../src/infrastructure/di/ServiceContainer';
 import { COLORS } from '../../src/core/constants/colors';
 import { DIMENSIONS } from '../../src/core/constants/dimensions';
 import { useTheme } from '../../src/core/context/ThemeContext';
-import { School, X, Calendar, LocateFixed } from 'lucide-react-native';
+import { X, Calendar, LocateFixed } from 'lucide-react-native';
 
-const { width, height } = Dimensions.get('window');
-const LATITUDE_DELTA = 0.005;
-const LONGITUDE_DELTA = LATITUDE_DELTA * (width / height);
 const windowHeight = Dimensions.get('window').height;
 
-const INITIAL_CAMPUS_REGION = {
-  latitude: 19.4074,
-  longitude: -98.1198,
-  latitudeDelta: LATITUDE_DELTA,
-  longitudeDelta: LONGITUDE_DELTA,
+const ENTRADA_PRINCIPAL_COORDS = {
+  latitude: 19.40719130839912,
+  longitude: -98.12107448617152,
 };
+
+// Niveles de zoom MapLibre equivalentes a los deltas usados con react-native-maps.
+const ZOOM_BUILDING = 17; // ~0.003°
+const ZOOM_CLOSE = 17.5; // ~0.002°
+const ZOOM_NAVIGATION = 18;
 
 export default function MapScreen() {
   const { theme } = useTheme();
@@ -42,8 +42,8 @@ export default function MapScreen() {
   const [userLocation, setUserLocation] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredBuildings, setFilteredBuildings] = useState([]);
-  const [geojsonLines, setGeojsonLines] = useState([]);
-  const [routePath, setRoutePath] = useState([]);
+  const [routeResult, setRouteResult] = useState(null);
+  const [isRouting, setIsRouting] = useState(false);
   const [graph, setGraph] = useState({});
   const [nodeCoords, setNodeCoords] = useState({});
   const [isLoading, setIsLoading] = useState(true);
@@ -54,6 +54,38 @@ export default function MapScreen() {
 
   const eventUseCases = serviceContainer.get('eventUseCases');
   const buildingUseCases = serviceContainer.get('buildingUseCases');
+  
+  const routingService = useMemo(() => {
+    try {
+      return serviceContainer.get('routingService');
+    } catch (e) {
+      return null;
+    }
+  }, []);
+
+  const campusAccessService = useMemo(() => {
+    try {
+      return serviceContainer.get('campusAccessService');
+    } catch (e) {
+      return null;
+    }
+  }, []);
+
+  const navigationService = useMemo(() => {
+    try {
+      return serviceContainer.get('navigationService');
+    } catch (e) {
+      return null;
+    }
+  }, []);
+
+  const [navigationState, setNavigationState] = useState({
+    status: 'idle',
+    isNavigating: false,
+    isArrived: false,
+    distanceToDestinationMeters: null,
+    routeResult: null,
+  });
   const panelAnimation = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -147,26 +179,6 @@ export default function MapScreen() {
       
       console.log(`✅ ${geoBuildings.length} edificios procesados`);
       setBuildings(geoBuildings);
-
-      // Procesar líneas de caminos para visualización en el mapa
-      const lines = caminos.features
-        .filter(f => f.geometry.type === 'LineString' || f.geometry.type === 'Point')
-        .map(f => {
-          if (f.geometry.type === 'LineString') {
-            return {
-              id: f.properties?.id || Math.random().toString(),
-              coordinates: f.geometry.coordinates.map(coord => ({
-                latitude: coord[1],
-                longitude: coord[0],
-              })),
-            };
-          }
-          return null;
-        })
-        .filter(line => line !== null);
-
-      setGeojsonLines(lines);
-      console.log(`✅ ${lines.length} líneas de caminos cargadas`);
     } catch (err) {
       console.error('❌ Error procesando GeoJSON:', err);
       Alert.alert('Error', 'No se pudieron cargar los datos del mapa');
@@ -291,66 +303,62 @@ export default function MapScreen() {
     };
   };
 
+  /** Mueve la cámara de SigmaMap (web o nativo) a una coordenada { latitude, longitude }. */
+  const flyToCoordinate = useCallback((coords, zoom = ZOOM_BUILDING, duration = 500) => {
+    if (!coords || !mapRef.current || typeof mapRef.current.flyTo !== 'function') return;
+    mapRef.current.flyTo({
+      center: [coords.longitude, coords.latitude],
+      zoom,
+      duration,
+    });
+  }, []);
+
   /**
-   * Calcula la ruta dinámicamente desde la ubicación actual del usuario hacia el edificio objetivo
+   * Calcula la ruta dinámicamente utilizando RoutingService (OSRM, Dijkstra o Híbrida)
    */
-  const calculateAndSetRoute = useCallback((targetBuilding, customStartCoords = null) => {
+  const calculateAndSetRoute = useCallback(async (targetBuilding, customStartCoords = null) => {
     if (!targetBuilding) return;
     setSelectedBuilding(targetBuilding);
 
-    if (!targetBuilding.entradaId) {
-      console.warn(`🚪 Edificio ${targetBuilding.name} no tiene entradaId asignado`);
-      return;
-    }
+    const startCoords = customStartCoords || userLocation || ENTRADA_PRINCIPAL_COORDS;
 
-    const entrada = entradas.features.find(
-      f => f.properties.id === targetBuilding.entradaId && f.properties.tipo === 'ENTRADA_EDIFICIO'
-    );
-
-    if (!entrada) {
-      console.warn(`🚪 Entrada no encontrada para edificio ${targetBuilding.id} (${targetBuilding.entradaId})`);
-      return;
-    }
-
-    const destinoId = entrada.properties.id;
-
-    // 1. Determinar el punto de partida dinámico (ubicación GPS actual del usuario o simulación)
-    const startCoords = customStartCoords || userLocation || nodeCoords['EP-003'] || {
-      latitude: 19.40719130839912,
-      longitude: -98.12107448617152,
-    };
-
-    // 2. Encontrar el nodo más cercano en la red de caminos del campus
-    const startNodeId = findNearestNode(startCoords, nodeCoords, graph) || 'EP-003';
-
-    // 3. Calcular la ruta óptima mediante Dijkstra
-    const path = findRoute(graph, startNodeId, destinoId, nodeCoords);
-
-    if (path && path.length > 0) {
-      const pathCoords = path.map(id => nodeCoords[id]).filter(Boolean);
-      // Conectar visualmente la ubicación exacta de inicio a la red de caminos
-      const fullRoute = [startCoords, ...pathCoords];
-      setRoutePath(fullRoute);
-
-      // Centrar suavemente la cámara en el objetivo
-      if (mapRef.current) {
-        mapRef.current.animateToRegion({
-          latitude: targetBuilding.coordinates.latitude,
-          longitude: targetBuilding.coordinates.longitude,
-          latitudeDelta: 0.003,
-          longitudeDelta: 0.003,
-        }, 500);
+    let destinationPoint = targetBuilding.coordinates;
+    if (campusAccessService && targetBuilding.id) {
+      try {
+        const entranceAcc = campusAccessService.getBuildingEntrance(targetBuilding.id);
+        if (entranceAcc && entranceAcc.coordinate) {
+          destinationPoint = entranceAcc.coordinate;
+        }
+      } catch (e) {
+        // Fallback a coordenadas del edificio si no se especifica puerta
       }
-    } else {
-      console.warn('⚠️ No se encontró ruta hacia', destinoId);
-      Alert.alert('Ruta', `No se encontró una ruta transitable hacia ${targetBuilding.name}`);
-      setRoutePath([]);
     }
-  }, [userLocation, nodeCoords, graph]);
 
-  const handleMarkerPress = (building) => {
-    calculateAndSetRoute(building);
-  };
+    if (!routingService) {
+      console.warn('⚠️ RoutingService no disponible en DI');
+      return;
+    }
+
+    try {
+      setIsRouting(true);
+      const result = await routingService.calculateHybridRoute(startCoords, destinationPoint);
+      setRouteResult(result);
+
+      if (navigationService) {
+        const navState = navigationService.setRoute(result);
+        setNavigationState(navState);
+      }
+
+      flyToCoordinate(targetBuilding.coordinates, ZOOM_BUILDING, 500);
+    } catch (err) {
+      const sanitized = (err.message || '').replace(/key=[a-zA-Z0-9_-]+/g, 'key=REDACTED');
+      console.warn('⚠️ Error al calcular la ruta:', sanitized);
+      setRouteResult(null);
+      Alert.alert('Ruta no disponible', `No se pudo calcular una ruta hacia ${targetBuilding.name}.`);
+    } finally {
+      setIsRouting(false);
+    }
+  }, [userLocation, routingService, campusAccessService, navigationService, flyToCoordinate]);
 
   const handleSearch = (query) => {
     setSearchQuery(query);
@@ -369,22 +377,45 @@ export default function MapScreen() {
 
   const closeInfoPanel = () => {
     setSelectedBuilding(null);
+    setRouteResult(null);
+    if (navigationService) {
+      const navState = navigationService.clearNavigation();
+      setNavigationState(navState);
+    }
   };
+
+  const handleStartNavigation = useCallback(() => {
+    if (!navigationService || !routeResult) return;
+    const startPos = userLocation || ENTRADA_PRINCIPAL_COORDS;
+    const newState = navigationService.startNavigation(routeResult, startPos);
+    setNavigationState(newState);
+    flyToCoordinate(startPos, ZOOM_NAVIGATION, 800);
+  }, [navigationService, routeResult, userLocation, flyToCoordinate]);
+
+  const handleStopNavigation = useCallback(() => {
+    if (!navigationService) return;
+    const newState = navigationService.stopNavigation();
+    setNavigationState(newState);
+  }, [navigationService]);
+
+  useEffect(() => {
+    if (navigationService && userLocation && navigationState.isNavigating) {
+      const navState = navigationService.updateUserPosition(userLocation);
+      setNavigationState(navState);
+
+      if (navState.isArrived && navState.status === 'finished') {
+        Alert.alert(
+          '🎉 Destino Alcanzado',
+          `¡Has llegado a ${selectedBuilding?.name || 'tu destino'}!`
+        );
+      }
+    }
+  }, [userLocation, navigationState.isNavigating, navigationService, selectedBuilding]);
 
   const handleShortcutPress = (type) => {
     if (type === 'entrada') {
-      const entradaCoords = nodeCoords['EP-003'] || {
-        latitude: 19.40719130839912,
-        longitude: -98.12107448617152,
-      };
-      if (mapRef.current) {
-        mapRef.current.animateToRegion({
-          latitude: entradaCoords.latitude,
-          longitude: entradaCoords.longitude,
-          latitudeDelta: 0.002,
-          longitudeDelta: 0.002,
-        }, 500);
-      }
+      const entradaCoords = nodeCoords['EP-003'] || ENTRADA_PRINCIPAL_COORDS;
+      flyToCoordinate(entradaCoords, ZOOM_CLOSE, 500);
       Alert.alert('Atajo', 'Ubicación centrada en la Entrada Principal del Campus 🚪');
     } else if (type === 'biblioteca') {
       const biblioBuilding = buildings.find(b => 
@@ -465,39 +496,30 @@ export default function MapScreen() {
   const centerOnUser = () => {
     const targetCoords = userLocation || nodeCoords['EP-003'];
     if (targetCoords && mapRef.current) {
-      mapRef.current.animateToRegion({
-        latitude: targetCoords.latitude,
-        longitude: targetCoords.longitude,
-        latitudeDelta: 0.003,
-        longitudeDelta: 0.003,
-      }, 500);
+      flyToCoordinate(targetCoords, ZOOM_BUILDING, 500);
     } else {
       Alert.alert('Ubicación', 'Obteniendo tu ubicación actual...');
     }
   };
 
-  // Memoizar coordenadas del perímetro para evitar recomputaciones
-  const campusPerimeterCoords = useMemo(() => {
-    return perimetroCampus.features[0]?.geometry?.coordinates?.map(coord => ({
-      latitude: coord[1],
-      longitude: coord[0],
-    })) || [];
-  }, []);
+  // Pines de edificios (filtrados por la búsqueda) para SigmaMap
+  const buildingMarkers = useMemo(
+    () => filteredBuildings.map(b => ({ id: b.id, name: b.name, coordinates: b.coordinates })),
+    [filteredBuildings]
+  );
 
-  // Memoizar polígonos de edificios
-  const buildingPolygons = useMemo(() => {
-    return buildings.map(building => {
-      const feature = edificios.features?.find(f => f.properties?.id === building.id);
-      if (!feature || feature.geometry?.type !== 'Polygon') return null;
-      return {
-        id: building.id,
-        coordinates: feature.geometry.coordinates[0].map(coord => ({
-          latitude: coord[1],
-          longitude: coord[0],
-        })),
-      };
-    }).filter(Boolean);
-  }, [buildings]);
+  // Colores del tema activo para las capas del mapa
+  const mapColors = useMemo(() => ({
+    primary: theme.primary,
+    secondary: theme.secondary,
+    path: theme.gray?.[300],
+  }), [theme]);
+
+  const handleMapBuildingPress = useCallback((feature) => {
+    const buildingId = feature?.properties?.id || feature?.id;
+    const target = buildings.find(b => b.id === buildingId);
+    if (target) calculateAndSetRoute(target);
+  }, [buildings, calculateAndSetRoute]);
 
   if (isLoading) {
     return (
@@ -515,131 +537,22 @@ export default function MapScreen() {
         <MapHeader />
       </View>
       <View style={styles.mapWrapper}>
-        <MapView
+        <SigmaMap
           ref={mapRef}
           style={styles.map}
-          provider={PROVIDER_GOOGLE}
-          initialRegion={INITIAL_CAMPUS_REGION}
-          showsUserLocation={!isSimulatedUser}
-          showsMyLocationButton={false}
-          showsCompass={false}
-          showsScale={false}
-          rotateEnabled={true}
-          pitchEnabled={true}
-          scrollEnabled={true}
-          zoomEnabled={true}
-          cameraBoundary={{
-            latitudeLimits: { min: 19.4045, max: 19.4125 },
-            longitudeLimits: { min: -98.1255, max: -98.1160 },
-          }}
-          minZoomLevel={15}
-          maxZoomLevel={20}
-        >
-          {/* Línea del Perímetro del Campus */}
-          {campusPerimeterCoords.length > 0 && (
-            <Polyline
-              coordinates={campusPerimeterCoords}
-              strokeColor={theme.secondary}
-              strokeWidth={2.8}
-              lineDashPattern={[6, 4]}
-            />
-          )}
-
-          {/* 1. Dibujar formas poligonales reales de los edificios */}
-          {buildingPolygons.map((poly) => {
-            const isSelected = selectedBuilding?.id === poly.id;
-            return (
-              <Polygon
-                key={`poly-${poly.id}`}
-                coordinates={poly.coordinates}
-                fillColor={isSelected ? `${theme.secondary}33` : `${theme.primary}15`}
-                strokeColor={isSelected ? theme.secondary : `${theme.primary}55`}
-                strokeWidth={isSelected ? 2.5 : 1.2}
-              />
-            );
-          })}
-
-          {/* 2. Dibujar caminos generales de la red */}
-          {geojsonLines.map((line) => (
-            <Polyline
-              key={line.id}
-              coordinates={line.coordinates}
-              strokeColor={theme.gray[300]}
-              strokeWidth={3.5}
-            />
-          ))}
-
-          {/* 3. Dibujar pines interactivos con tracksViewChanges optimizado */}
-          {filteredBuildings.map((building) => {
-            const isSelected = selectedBuilding?.id === building.id;
-            return (
-              <Marker
-                key={building.id}
-                coordinate={building.coordinates}
-                onPress={() => handleMarkerPress(building)}
-                tracksViewChanges={isSelected}
-              >
-                <View style={[
-                  styles.markerContainer,
-                  isSelected && styles.markerContainerSelected
-                ]}>
-                  <View style={[
-                    styles.markerBadge,
-                    { 
-                      backgroundColor: isSelected ? theme.secondary : theme.primary,
-                      borderColor: '#ffffff',
-                      width: isSelected ? 34 : 26,
-                      height: isSelected ? 34 : 26,
-                      borderRadius: isSelected ? 17 : 13,
-                    }
-                  ]}>
-                    <School size={isSelected ? 15 : 11} color="#ffffff" />
-                  </View>
-                  {isSelected && (
-                    <View style={[styles.markerTitleContainer, { backgroundColor: theme.primary }]}>
-                      <Text style={styles.markerTitleText}>{building.name}</Text>
-                    </View>
-                  )}
-                </View>
-              </Marker>
-            );
-          })}
-
-          {/* 4. Dibujar ruta activa con resplandor de neón */}
-          {routePath.length > 1 && (
-            <>
-              {/* Aura base de resplandor */}
-              <Polyline
-                coordinates={routePath}
-                strokeColor={`${theme.secondary}33`}
-                strokeWidth={11}
-              />
-              {/* Línea principal discontinua */}
-              <Polyline
-                coordinates={routePath}
-                strokeColor={theme.secondary}
-                strokeWidth={5.5}
-                lineDashPattern={[10, 5]}
-              />
-            </>
-          )}
-
-          {/* 5. Dibujar indicador de Usuario Simulado (Modo Demostración / Fuera de Campus) */}
-          {isSimulatedUser && userLocation && (
-            <Marker
-              key="simulated-user"
-              coordinate={userLocation}
-              title="Tú (Ubicación Simulada)"
-              description="Navegación demostrativa"
-              tracksViewChanges={false}
-            >
-              <View style={styles.simulatedUserContainer}>
-                <View style={[styles.simulatedUserPulse, { backgroundColor: `${theme.secondary}44` }]} />
-                <View style={[styles.simulatedUserDot, { backgroundColor: theme.secondary }]} />
-              </View>
-            </Marker>
-          )}
-        </MapView>
+          buildings={edificios}
+          paths={caminos}
+          entrances={entradas}
+          campusBoundary={perimetroCampus}
+          buildingMarkers={buildingMarkers}
+          selectedBuilding={selectedBuilding?.id}
+          userLocation={userLocation}
+          isSimulatedUser={isSimulatedUser}
+          routeResult={routeResult}
+          colors={mapColors}
+          onBuildingPress={handleMapBuildingPress}
+          onMapPress={closeInfoPanel}
+        />
 
         {/* Botón flotante para centrar en la ubicación del usuario */}
         <TouchableOpacity
@@ -717,6 +630,11 @@ export default function MapScreen() {
           <BuildingInfoPanel
             building={selectedBuilding}
             onClose={closeInfoPanel}
+            onRoutePress={() => calculateAndSetRoute(selectedBuilding)}
+            routeResult={routeResult}
+            navigationState={navigationState}
+            onStartNavigation={handleStartNavigation}
+            onStopNavigation={handleStopNavigation}
           />
         </Animated.View>
       )}
@@ -844,42 +762,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  markerContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 120,
-    height: 80,
-    overflow: 'visible',
-  },
-  markerContainerSelected: {
-    zIndex: 999,
-  },
-  markerBadge: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 5,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.28,
-    shadowRadius: 4,
-    borderWidth: 2.2,
-  },
-  markerTitleContainer: {
-    paddingHorizontal: 8,
-    paddingVertical: 3.5,
-    borderRadius: DIMENSIONS.borderRadius.md,
-    marginTop: 4,
-    elevation: 3,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 1.5 },
-    shadowOpacity: 0.22,
-    shadowRadius: 1.8,
-  },
-  markerTitleText: {
-    color: '#ffffff',
-    fontSize: 9,
-    fontFamily: 'Roboto-Bold',
-  },
   floatingEventsFab: {
     position: 'absolute',
     bottom: 24,
@@ -908,31 +790,5 @@ const styles = StyleSheet.create({
     right: 16,
     padding: 4,
     zIndex: 95,
-  },
-  simulatedUserContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 40,
-    height: 40,
-  },
-  simulatedUserDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    borderWidth: 2,
-    borderColor: '#ffffff',
-    position: 'absolute',
-    elevation: 4,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 2,
-  },
-  simulatedUserPulse: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    position: 'absolute',
-    opacity: 0.7,
   },
 });
