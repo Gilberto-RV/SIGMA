@@ -2,17 +2,10 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Platform } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { ArrowLeft, Smartphone, ShieldCheck, MapPin } from 'lucide-react-native';
+// Resuelto por plataforma: en web exporta null; en Android/iOS el Map de MapLibre (vía `import`).
+import { Map as MapLibreNativeMap } from '../src/presentation/components/map/maplibreNative';
 
-let NativeMapComponent = null;
-
-if (Platform.OS !== 'web') {
-  try {
-    const MapLibreRN = require('@maplibre/maplibre-react-native');
-    NativeMapComponent = MapLibreRN.Map || MapLibreRN.MapView;
-  } catch (e) {
-    console.warn('[MapLibre Native Test] No se pudo cargar el modulo nativo:', e.message);
-  }
-}
+const NativeMapComponent = Platform.OS !== 'web' ? MapLibreNativeMap : null;
 
 export default function MapLibreNativeTestScreen() {
   const router = useRouter();

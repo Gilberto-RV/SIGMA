@@ -129,9 +129,18 @@ Metro elige el archivo por extensión de plataforma, así que `maplibre-gl` nunc
 - La app los inyecta en [`ServiceContainer.js`](../../project/src/infrastructure/di/ServiceContainer.js).
 - Las pruebas en Node los cargan con [`campusGeoFixtures.node.js`](../../project/src/core/services/campusGeoFixtures.node.js).
 
+### Una sola copia del módulo nativo
+Importar `@maplibre/maplibre-react-native` siempre con `import` (ESM). Con `require`, Metro resuelve `lib/commonjs` en lugar de `lib/module`, la librería se evalúa dos veces y falla con `Tried to register two views with the same name MLRNCamera`. Fuera de `SigmaMapNative`, usar [`maplibreNative.native.js`](../../project/src/presentation/components/map/maplibreNative.native.js) (en web resuelve a `maplibreNative.web.js`, que exporta `null`).
+
 ### Compilar y probar en Android
 ```bash
 cd project
 npx expo prebuild --platform android --clean   # regenera android/ (ignorado en git)
 npx expo run:android                           # requiere JDK 17 y Android SDK (API 36, NDK 27.1)
 ```
+
+### Validación en emulador (17-nov-2026)
+- `gradlew assembleDebug` compiló el APK (incluye `libmaplibre.so`).
+- Emulador Android 35 **sin Google Play Services** (imagen `default;x86_64`): el mapa base OSM, los 13 edificios, pines, entradas, perímetro, selección de edificio, panel de detalle, ruta híbrida y el indicador de ubicación nativo funcionan.
+- En el emulador (render por software SwiftShader) las capas con `line-dasharray` no se dibujaban de forma fiable. Por eso la línea principal de la ruta es continua en nativo; el perímetro sigue discontinuo (solo estético). Conviene confirmarlo en un teléfono real.
+- Si Metro no detecta cambios dentro de OneDrive, reinícialo con `npx expo start --clear`.

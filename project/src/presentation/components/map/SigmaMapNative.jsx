@@ -80,6 +80,9 @@ export const SigmaMapNative = forwardRef(function SigmaMapNative(
   ref
 ) {
   const cameraRef = useRef(null);
+  // En Android el toque sobre un Marker también llega a Map.onPress; esta marca de tiempo evita
+  // que ese mismo toque se interprete como "zona libre" y cierre la selección recién hecha.
+  const featurePressAtRef = useRef(0);
   const [styleUrl, setStyleUrl] = useState(getPrimaryStyleUrl);
 
   const colors = useMemo(
@@ -131,13 +134,28 @@ export const SigmaMapNative = forwardRef(function SigmaMapNative(
       const feature = event?.nativeEvent?.features?.[0];
       if (!feature) return;
       event.stopPropagation?.();
+      featurePressAtRef.current = Date.now();
       onBuildingPress?.(feature);
+    },
+    [onBuildingPress]
+  );
+
+  const handleMarkerPress = useCallback(
+    (event, marker) => {
+      event?.stopPropagation?.();
+      featurePressAtRef.current = Date.now();
+      onBuildingPress?.({
+        type: 'Feature',
+        id: marker.id,
+        properties: { id: marker.id, name: marker.name },
+      });
     },
     [onBuildingPress]
   );
 
   const handleMapPress = useCallback(
     (event) => {
+      if (Date.now() - featurePressAtRef.current < 500) return;
       const lngLat = event?.nativeEvent?.lngLat;
       if (!onMapPress || !Array.isArray(lngLat)) return;
       onMapPress({ latitude: lngLat[1], longitude: lngLat[0] });
@@ -249,14 +267,15 @@ export const SigmaMapNative = forwardRef(function SigmaMapNative(
               'line-opacity': 0.2,
             }}
           />
+          {/* Línea continua a propósito: en el emulador Android (render por software) las capas
+              con line-dasharray no se dibujaban, y la ruta no puede depender de eso. */}
           <Layer
             id="sigma-route-line"
             type="line"
-            layout={{ 'line-join': 'round' }}
+            layout={{ 'line-cap': 'round', 'line-join': 'round' }}
             paint={{
               'line-color': colors.secondary,
               'line-width': 5.5,
-              'line-dasharray': [2, 1],
             }}
           />
         </GeoJSONSource>
@@ -269,13 +288,7 @@ export const SigmaMapNative = forwardRef(function SigmaMapNative(
               id={`marker-${marker.id}`}
               lngLat={[marker.coordinates.longitude, marker.coordinates.latitude]}
               anchor="center"
-              onPress={() =>
-                onBuildingPress?.({
-                  type: 'Feature',
-                  id: marker.id,
-                  properties: { id: marker.id, name: marker.name },
-                })
-              }
+              onPress={(event) => handleMarkerPress(event, marker)}
             >
               <View style={styles.markerContainer}>
                 <View
