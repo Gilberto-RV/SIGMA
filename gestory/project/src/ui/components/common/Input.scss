@@ -27,7 +27,7 @@
   &:focus {
     outline: none;
     border-color: var(--color-primary);
-    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    box-shadow: 0 0 0 3px rgba(10, 58, 96, 0.15);
   }
   
   &--error {
@@ -49,7 +49,7 @@
   left: var(--spacing-3);
   top: 50%;
   transform: translateY(-50%);
-  color: var(--color-gray-400);
+  color: var(--color-gray-500);
   pointer-events: none;
 }
 

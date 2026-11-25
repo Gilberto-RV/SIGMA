@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { OSRM_BASE_URL } from '../../core/config/mapConfig.js';
+import { OSRM_BASE_URL, OSRM_PROFILE } from '../../core/config/mapConfig.js';
 import { isValidCoordinate } from '../../core/utils/geoAdapters.js';
 
 /**
@@ -12,8 +12,9 @@ export class OsrmClient {
    * @param {string} [config.baseUrl] URL base del servidor OSRM.
    * @param {number} [config.timeout=10000] Tiempo de espera en milisegundos.
    */
-  constructor({ baseUrl = OSRM_BASE_URL, timeout = 10000 } = {}) {
+  constructor({ baseUrl = OSRM_BASE_URL, profile = OSRM_PROFILE, timeout = 10000 } = {}) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
+    this.defaultProfile = profile;
     this.httpClient = axios.create({
       baseURL: this.baseUrl,
       timeout,
@@ -28,7 +29,7 @@ export class OsrmClient {
    *
    * @param {Array<{ latitude: number, longitude: number }>} coordinates Lista ordenada de coordenadas.
    * @param {Object} [options]
-   * @param {'driving' | 'foot' | 'bike'} [options.profile='driving'] Perfil de transporte.
+   * @param {string} [options.profile] Segmento de perfil de la URL (por defecto OSRM_PROFILE).
    * @returns {Promise<Object>} Objeto de ruta de OSRM (routes[0]).
    * @throws {Error} Si las coordenadas son inválidas, la red falla o no existe ruta.
    */
@@ -42,7 +43,7 @@ export class OsrmClient {
       throw new Error(`[OsrmClient] Coordenada inválida en la solicitud: ${JSON.stringify(invalidCoord)}`);
     }
 
-    const profile = options.profile || 'driving';
+    const profile = options.profile || this.defaultProfile;
     const coordsString = coordinates
       .map(c => `${c.longitude},${c.latitude}`)
       .join(';');

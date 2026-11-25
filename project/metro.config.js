@@ -1,16 +1,5 @@
 const { getDefaultConfig } = require('expo/metro-config');
-const path = require('path');
 
-const config = getDefaultConfig(__dirname);
-
-config.resolver.resolveRequest = (context, moduleName, platform) => {
-  if (platform === 'web' && moduleName === 'react-native-maps') {
-    return {
-      filePath: path.resolve(__dirname, 'src/core/shims/react-native-maps.web.js'),
-      type: 'sourceFile',
-    };
-  }
-  return context.resolveRequest(context, moduleName, platform);
-};
-
-module.exports = config;
+// Configuración por defecto de Expo. El resolver que redirigía react-native-maps a un shim web
+// ya no hace falta: el mapa es MapLibre en todas las plataformas (SigmaMap.web / SigmaMap.native).
+module.exports = getDefaultConfig(__dirname);

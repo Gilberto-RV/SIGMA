@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+// Los colores de estado (success, warning, error, info) tienen contraste ≥ 4.5:1 sobre blanco
+// (WCAG 2.1 AA); primarySoft es el fondo claro para chips y elementos seleccionados.
 export const THEMES = {
   nabigo: {
     id: 'nabigo',
@@ -12,10 +14,11 @@ export const THEMES = {
     text: '#212121',
     cardBg: 'rgba(255, 255, 255, 0.88)',
     cardBorder: 'rgba(10, 58, 96, 0.15)',
-    success: '#4caf50',
-    warning: '#ff9800',
-    error: '#f44336',
-    info: '#2196f3',
+    primarySoft: '#e8f1fa',
+    success: '#2e7d32',
+    warning: '#a15c00',
+    error: '#c62828',
+    info: '#1565c0',
     gray: {
       100: '#f5f5f5',
       200: '#eeeeee',
@@ -38,10 +41,11 @@ export const THEMES = {
     text: '#212121',
     cardBg: 'rgba(255, 255, 255, 0.88)',
     cardBorder: 'rgba(128, 0, 32, 0.15)',
-    success: '#4caf50',
-    warning: '#ff9800',
-    error: '#f44336',
-    info: '#d4af37',
+    primarySoft: '#f8e9ec',
+    success: '#2e7d32',
+    warning: '#a15c00',
+    error: '#c62828',
+    info: '#7a5c00',
     gray: {
       100: '#f5f5f5',
       200: '#eeeeee',
@@ -64,10 +68,11 @@ export const THEMES = {
     text: '#212121',
     cardBg: 'rgba(255, 255, 255, 0.88)',
     cardBorder: 'rgba(30, 132, 73, 0.15)',
+    primarySoft: '#e7f4ec',
     success: '#1e8449',
-    warning: '#f39c12',
-    error: '#e74c3c',
-    info: '#3498db',
+    warning: '#a15c00',
+    error: '#c0392b',
+    info: '#2471a3',
     gray: {
       100: '#f5f5f5',
       200: '#eeeeee',

@@ -1,4 +1,5 @@
 import { buildGraph, findNearestNode, findRoute } from '../utils/graphUtils.js';
+import { accessibleEdgeCost, edgeKey, summarizePathAccessibility } from '../utils/accessibility.js';
 import { isValidCoordinate } from '../utils/geoAdapters.js';
 
 // Los GeoJSON del campus se inyectan desde fuera (ServiceContainer en la app, fixtures en las
@@ -38,10 +39,11 @@ export class DijkstraRoutingService {
    * @param {Object} [dependencies.nodeCoords] Diccionario de coordenadas por ID de nodo.
    * @param {Array<Object>} [dependencies.geoJsonFeatures] Arreglo de features GeoJSON para construir el grafo si no se provee.
    */
-  constructor({ graph = null, nodeCoords = null, geoJsonFeatures = null } = {}) {
+  constructor({ graph = null, nodeCoords = null, edgeAttributes = {}, geoJsonFeatures = null } = {}) {
     if (graph && nodeCoords) {
       this.graph = graph;
       this.nodeCoords = nodeCoords;
+      this.edgeAttributes = edgeAttributes;
     } else {
       const features = geoJsonFeatures || [];
       if (features.length === 0) {
@@ -50,6 +52,7 @@ export class DijkstraRoutingService {
       const built = buildGraph(features);
       this.graph = built.graph;
       this.nodeCoords = built.nodeCoords;
+      this.edgeAttributes = built.edgeAttributes;
     }
   }
 
@@ -60,6 +63,7 @@ export class DijkstraRoutingService {
    * @param {{ latitude: number, longitude: number } | string} destination Coordenada o ID del nodo de destino.
    * @param {Object} [options]
    * @param {number} [options.walkingSpeedMs=1.2] Velocidad promedio de caminata en m/s.
+   * @param {boolean} [options.accessible=false] Ruta accesible: evita escaleras y pendientes fuertes registradas.
    * @returns {Promise<import('./RoutingService.js').RouteResult>} Ruta normalizada al contrato RouteResult.
    * @throws {Error} Si no se puede resolver la ruta o los nodos no son válidos.
    */
@@ -97,9 +101,18 @@ export class DijkstraRoutingService {
       throw new Error(`[DijkstraRoutingService] Nodo de destino no encontrado en el grafo de caminos (${goalNodeId}).`);
     }
 
-    const pathNodeIds = findRoute(this.graph, startNodeId, goalNodeId, this.nodeCoords);
+    const accessible = options.accessible === true;
+    const edgeCost = accessible
+      ? (from, to, base) => accessibleEdgeCost(this.edgeAttributes[edgeKey(from, to)], base)
+      : undefined;
+    const pathNodeIds = findRoute(this.graph, startNodeId, goalNodeId, this.nodeCoords, { edgeCost });
 
     if (!pathNodeIds || pathNodeIds.length === 0) {
+      if (accessible && findRoute(this.graph, startNodeId, goalNodeId, this.nodeCoords)) {
+        const error = new Error('[DijkstraRoutingService] No hay una ruta accesible: todos los caminos tienen escaleras o pendientes fuertes.');
+        error.code = 'NO_ACCESSIBLE_ROUTE';
+        throw error;
+      }
       throw new Error(`[DijkstraRoutingService] No se encontró una ruta navegable entre ${startNodeId} y ${goalNodeId}.`);
     }
 
@@ -131,6 +144,10 @@ export class DijkstraRoutingService {
         nodePath: pathNodeIds,
         startNodeId,
         goalNodeId,
+        accessibility: {
+          mode: accessible ? 'accessible' : 'standard',
+          ...summarizePathAccessibility(pathNodeIds, this.edgeAttributes),
+        },
       },
     };
   }

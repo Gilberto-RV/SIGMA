@@ -1,11 +1,9 @@
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
-import { View, StyleSheet, Text, Dimensions, Alert, ScrollView, Animated, Image, TouchableOpacity } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View, StyleSheet, Text, Dimensions, Alert, ScrollView, Animated, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
-import edificios from '../../assets/geo/Edificios.json';
-import caminos from '../../assets/geo/caminos.json';
-import entradas from '../../assets/geo/Entradas.json';
-import perimetroCampus from '../../assets/geo/PerimetroCampus.json';
+import { BUNDLED_GEO } from '../../src/core/geo/bundledGeo';
+import { withBuildingHeights } from '../../src/core/geo/geoLayers';
 import { buildGraph } from '../../src/core/utils/graphUtils';
 import { SigmaMap } from '../../src/presentation/components/map';
 
@@ -14,10 +12,10 @@ import SearchBar from '../../src/presentation/components/SearchBar';
 import BuildingInfoPanel from '../../src/presentation/components/BuildingInfoPanel';
 import EventsCarousel from '../../src/presentation/components/EventsCarousel';
 import { serviceContainer } from '../../src/infrastructure/di/ServiceContainer';
-import { COLORS } from '../../src/core/constants/colors';
+import { COLORS, MIN_TOUCH_TARGET } from '../../src/core/constants/colors';
 import { DIMENSIONS } from '../../src/core/constants/dimensions';
 import { useTheme } from '../../src/core/context/ThemeContext';
-import { X, Calendar, LocateFixed } from 'lucide-react-native';
+import { X, Calendar, LocateFixed, Box, Map as MapIcon, Check } from 'lucide-react-native';
 
 const windowHeight = Dimensions.get('window').height;
 
@@ -26,13 +24,31 @@ const ENTRADA_PRINCIPAL_COORDS = {
   longitude: -98.12107448617152,
 };
 
-// Niveles de zoom MapLibre equivalentes a los deltas usados con react-native-maps.
+// Niveles de zoom de MapLibre equivalentes a los deltas de cámara que usaba la versión anterior.
 const ZOOM_BUILDING = 17; // ~0.003°
 const ZOOM_CLOSE = 17.5; // ~0.002°
 const ZOOM_NAVIGATION = 18;
 
+// Fracción de la pantalla que ocupa el panel del edificio (ver styles.infoPanel).
+const INFO_PANEL_RATIO = 0.52;
+
+/**
+ * Devuelve un centro de cámara desplazado al sur la mitad del alto del panel inferior, para que
+ * `coords` quede en el centro del área visible del mapa. MapLibre usa teselas de 512 px:
+ * metros por punto = 78271.52 · cos(lat) / 2^zoom.
+ */
+function centerAbovePanel(coords, zoom) {
+  if (!coords) return coords;
+  const metersPerPoint = (78271.52 * Math.cos((coords.latitude * Math.PI) / 180)) / 2 ** zoom;
+  const offsetMeters = ((windowHeight * INFO_PANEL_RATIO) / 2) * metersPerPoint;
+  return { latitude: coords.latitude - offsetMeters / 111320, longitude: coords.longitude };
+}
+
 export default function MapScreen() {
   const { theme } = useTheme();
+  // Android dibuja de borde a borde: los paneles inferiores suman el alto de la barra de
+  // navegación para que sus botones no queden debajo de ella.
+  const insets = useSafeAreaInsets();
   const mapRef = useRef(null);
   const locationSubscriptionRef = useRef(null);
 
@@ -51,17 +67,23 @@ export default function MapScreen() {
   const [showEventsPanel, setShowEventsPanel] = useState(true);
   const [isInsideCampus, setIsInsideCampus] = useState(true);
   const [isSimulatedUser, setIsSimulatedUser] = useState(false);
+  // Capas del campus: empiezan con las empaquetadas y se reemplazan si el backend tiene versión nueva.
+  const [geoLayers, setGeoLayers] = useState(BUNDLED_GEO);
+  const geoLayersRef = useRef(BUNDLED_GEO);
+  const [geoRevision, setGeoRevision] = useState(0);
+  const [is3D, setIs3D] = useState(false);
 
   const eventUseCases = serviceContainer.get('eventUseCases');
   const buildingUseCases = serviceContainer.get('buildingUseCases');
   
+  // Se reconstruyen cuando cambian las capas (geoRevision); ver ServiceContainer.configureGeoData.
   const routingService = useMemo(() => {
     try {
       return serviceContainer.get('routingService');
     } catch (e) {
       return null;
     }
-  }, []);
+  }, [geoRevision]);
 
   const campusAccessService = useMemo(() => {
     try {
@@ -69,7 +91,7 @@ export default function MapScreen() {
     } catch (e) {
       return null;
     }
-  }, []);
+  }, [geoRevision]);
 
   const navigationService = useMemo(() => {
     try {
@@ -109,7 +131,8 @@ export default function MapScreen() {
   useEffect(() => {
     loadInitialData();
     requestLocationPermission();
-    processGeoJSON();
+    processGeoJSON(BUNDLED_GEO);
+    loadGeoLayers();
 
     return () => {
       if (locationSubscriptionRef.current) {
@@ -122,7 +145,24 @@ export default function MapScreen() {
     filterBuildings();
   }, [searchQuery, buildings]);
 
-  const processGeoJSON = async () => {
+  /** Descarga capas más recientes del backend (o usa la caché) y reconstruye rutas y edificios. */
+  const loadGeoLayers = async () => {
+    try {
+      const result = await serviceContainer.get('geoRepository').getLayers();
+      if (result.source === 'bundled') return;
+      serviceContainer.configureGeoData(result.layers);
+      geoLayersRef.current = result.layers;
+      setGeoLayers(result.layers);
+      setGeoRevision((revision) => revision + 1);
+      processGeoJSON(result.layers);
+      console.log(`🗺️ Capas del campus desde ${result.source} (versión ${result.version})`);
+    } catch (err) {
+      console.warn('No se pudieron actualizar las capas del campus:', err?.message);
+    }
+  };
+
+  const processGeoJSON = async (layers = geoLayersRef.current) => {
+    const { buildings: edificios, paths: caminos, entrances: entradas } = layers;
     try {
       console.log('📍 Cargando datos geográficos modulares...');
       console.log(`  Edificios: ${edificios.features?.length || 0}`);
@@ -141,7 +181,8 @@ export default function MapScreen() {
       
       // Procesar solo los edificios del JSON modular (13 edificios)
       const geoBuildings = edificios.features.map(f => {
-        const center = calculateCenterFromPolygon(f.geometry.coordinates[0]);
+        const outerRing = f.geometry.type === 'MultiPolygon' ? f.geometry.coordinates[0][0] : f.geometry.coordinates[0];
+        const center = calculateCenterFromPolygon(outerRing);
         const id = f.properties.id;
 
         // Buscar edificio en MongoDB
@@ -217,7 +258,7 @@ export default function MapScreen() {
   const requestLocationPermission = async () => {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
-      const campusPolygon = perimetroCampus.features[0]?.geometry?.coordinates || [];
+      const campusPolygon = geoLayersRef.current.perimeter.features[0]?.geometry?.coordinates || [];
       const entradaPrincipalCoords = {
         latitude: 19.40719130839912,
         longitude: -98.12107448617152,
@@ -242,8 +283,8 @@ export default function MapScreen() {
           setUserLocation(entradaPrincipalCoords);
           setIsSimulatedUser(true);
           Alert.alert(
-            'Geofencing Activo 🔒',
-            'Te encuentras fuera del campus de INNOVATEC. Para tu comodidad y evaluación, se ha activado la simulación situándote en la Entrada Principal del plantel.'
+            'Estás fuera del campus',
+            'Para que puedas explorar el mapa y trazar rutas, te ubicamos en la Entrada Principal del instituto.'
           );
         }
 
@@ -315,7 +356,7 @@ export default function MapScreen() {
   /**
    * Calcula la ruta dinámicamente utilizando RoutingService (OSRM, Dijkstra o Híbrida)
    */
-  const calculateAndSetRoute = useCallback(async (targetBuilding, customStartCoords = null) => {
+  const calculateAndSetRoute = useCallback(async (targetBuilding, customStartCoords = null, overrides = {}) => {
     if (!targetBuilding) return;
     setSelectedBuilding(targetBuilding);
 
@@ -340,7 +381,9 @@ export default function MapScreen() {
 
     try {
       setIsRouting(true);
-      const result = await routingService.calculateHybridRoute(startCoords, destinationPoint);
+      // Modo accesible: evita escaleras y pendientes fuertes registradas en las capas del campus.
+      const accessible = overrides.accessible ?? isAccessibilityActive;
+      const result = await routingService.calculateHybridRoute(startCoords, destinationPoint, { accessible });
       setRouteResult(result);
 
       if (navigationService) {
@@ -348,30 +391,33 @@ export default function MapScreen() {
         setNavigationState(navState);
       }
 
-      flyToCoordinate(targetBuilding.coordinates, ZOOM_BUILDING, 500);
+      // El panel del edificio cubre la mitad inferior: se centra la cámara un poco más al sur para
+      // que el destino quede visible arriba del panel (antes quedaba oculto detrás).
+      flyToCoordinate(centerAbovePanel(targetBuilding.coordinates, ZOOM_BUILDING), ZOOM_BUILDING, 500);
     } catch (err) {
       const sanitized = (err.message || '').replace(/key=[a-zA-Z0-9_-]+/g, 'key=REDACTED');
       console.warn('⚠️ Error al calcular la ruta:', sanitized);
       setRouteResult(null);
-      Alert.alert('Ruta no disponible', `No se pudo calcular una ruta hacia ${targetBuilding.name}.`);
+      const noAccessibleRoute = String(err.message || '').includes('No hay una ruta accesible');
+      Alert.alert(
+        'Ruta no disponible',
+        noAccessibleRoute
+          ? `No hay una ruta sin escaleras ni pendientes fuertes hacia ${targetBuilding.name}. Desactiva "Ruta Inclusiva" para ver la ruta estándar.`
+          : `No se pudo calcular una ruta hacia ${targetBuilding.name}.`
+      );
     } finally {
       setIsRouting(false);
     }
-  }, [userLocation, routingService, campusAccessService, navigationService, flyToCoordinate]);
+  }, [userLocation, routingService, campusAccessService, navigationService, flyToCoordinate, isAccessibilityActive]);
 
+  // Escribir solo filtra edificios (pines y lista de resultados); la ruta se traza al elegir un
+  // resultado. Antes cada letra calculaba una ruta hacia la primera coincidencia.
   const handleSearch = (query) => {
     setSearchQuery(query);
+  };
 
-    const target = buildings.find(b =>
-      b.name.toLowerCase().includes(query.toLowerCase())
-    );
-
-    if (!target) {
-      return;
-    }
-
-    calculateAndSetRoute(target);
-    filterBuildings();
+  const handleSelectSearchResult = (building) => {
+    calculateAndSetRoute(building);
   };
 
   const closeInfoPanel = () => {
@@ -452,12 +498,13 @@ export default function MapScreen() {
     setIsAccessibilityActive(nextVal);
     Alert.alert(
       'Modo Accesibilidad',
-      nextVal 
-        ? '♿ Ruta Inclusiva activada. El mapa priorizará accesos con rampas y pasos nivelados.' 
+      nextVal
+        ? '♿ Ruta Inclusiva activada: se evitan los tramos registrados con escaleras o pendientes fuertes. Algunos caminos aún no tienen esa información.'
         : 'Ruta estándar activada.'
     );
     if (selectedBuilding) {
-      calculateAndSetRoute(selectedBuilding);
+      // Se pasa el valor nuevo explícitamente: el estado todavía no se ha actualizado aquí.
+      calculateAndSetRoute(selectedBuilding, null, { accessible: nextVal });
     }
   };
 
@@ -501,6 +548,12 @@ export default function MapScreen() {
     }
   };
 
+  // Edificios con altura (m) para la vista 3D: medida en el GeoJSON o niveles de la BD × 3.5 m.
+  const buildingsGeo = useMemo(() => {
+    const floorsById = Object.fromEntries(buildings.map((b) => [b.id, b.floors]));
+    return withBuildingHeights(geoLayers.buildings, floorsById);
+  }, [geoLayers, buildings]);
+
   // Pines de edificios (filtrados por la búsqueda) para SigmaMap
   const buildingMarkers = useMemo(
     () => filteredBuildings.map(b => ({ id: b.id, name: b.name, coordinates: b.coordinates })),
@@ -523,15 +576,31 @@ export default function MapScreen() {
   if (isLoading) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-        <View style={styles.loadingContainer}>
-          <Text style={{ color: theme.primary, fontFamily: 'Roboto-Medium' }}>Cargando mapa...</Text>
+        <View style={styles.loadingContainer} accessibilityRole="progressbar" accessibilityLabel="Cargando mapa">
+          <ActivityIndicator size="large" color={theme.primary} />
+          <Text style={[styles.loadingText, { color: theme.gray[700] }]}>Cargando mapa…</Text>
         </View>
       </SafeAreaView>
     );
   }
 
+  const shortcuts = [
+    { key: 'biblioteca', emoji: '📚', label: 'Biblioteca', onPress: () => handleShortcutPress('biblioteca') },
+    { key: 'comida', emoji: '🍔', label: 'Cafetería', onPress: () => handleShortcutPress('comida') },
+    { key: 'baños', emoji: '🚻', label: 'Baños', onPress: () => handleShortcutPress('baños') },
+    {
+      key: 'inclusiva',
+      emoji: '♿',
+      label: 'Ruta Inclusiva',
+      onPress: toggleAccessibilityShortcut,
+      isToggle: true,
+      active: isAccessibilityActive,
+    },
+    { key: 'entrada', emoji: '🚪', label: 'Entrada Principal', onPress: () => handleShortcutPress('entrada') },
+  ];
+
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView edges={['top', 'left', 'right']} style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={{ backgroundColor: theme.primary, zIndex: 100 }}>
         <MapHeader />
       </View>
@@ -539,16 +608,17 @@ export default function MapScreen() {
         <SigmaMap
           ref={mapRef}
           style={styles.map}
-          buildings={edificios}
-          paths={caminos}
-          entrances={entradas}
-          campusBoundary={perimetroCampus}
+          buildings={buildingsGeo}
+          paths={geoLayers.paths}
+          entrances={geoLayers.entrances}
+          campusBoundary={geoLayers.perimeter}
           buildingMarkers={buildingMarkers}
           selectedBuilding={selectedBuilding?.id}
           userLocation={userLocation}
           isSimulatedUser={isSimulatedUser}
           routeResult={routeResult}
           colors={mapColors}
+          is3D={is3D}
           onBuildingPress={handleMapBuildingPress}
           onMapPress={closeInfoPanel}
         />
@@ -558,56 +628,83 @@ export default function MapScreen() {
           style={[styles.locateButton, { backgroundColor: theme.cardBg, borderColor: theme.cardBorder }]}
           onPress={centerOnUser}
           activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel="Centrar el mapa en mi ubicación"
         >
           <LocateFixed size={22} color={theme.primary} />
         </TouchableOpacity>
 
+        {/* Alterna la vista 2D / 3D (edificios extruidos y cámara inclinada) */}
+        <TouchableOpacity
+          style={[styles.locateButton, styles.view3DButton, { backgroundColor: is3D ? theme.primary : theme.cardBg, borderColor: theme.cardBorder }]}
+          onPress={() => setIs3D((value) => !value)}
+          activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel={is3D ? 'Cambiar a vista 2D' : 'Cambiar a vista 3D'}
+          accessibilityState={{ selected: is3D }}
+        >
+          {is3D ? <MapIcon size={20} color="#ffffff" /> : <Box size={20} color={theme.primary} />}
+          <Text style={[styles.view3DText, { color: is3D ? '#ffffff' : theme.primary }]}>{is3D ? '2D' : '3D'}</Text>
+        </TouchableOpacity>
+
         {/* Barra de búsqueda flotante sobre el mapa */}
         <View style={styles.searchBarWrapper}>
-          <SearchBar onSearch={handleSearch} />
+          <SearchBar
+            onSearch={handleSearch}
+            results={searchQuery.trim() ? filteredBuildings : []}
+            onSelectResult={handleSelectSearchResult}
+          />
         </View>
 
-        {/* Panel de Control Inferior (Dashboard) Plegable y Glassmorphism */}
+        {/* Panel inferior plegable: atajos y eventos */}
         {showEventsPanel ? (
-          <View style={[styles.bottomPanel, { backgroundColor: theme.cardBg, borderColor: theme.cardBorder, borderTopWidth: 1.2 }]}>
-            {/* Tirador estético */}
-            <View style={[styles.dragHandle, { backgroundColor: theme.gray[300] }]} />
+          <View
+            style={[
+              styles.bottomPanel,
+              { backgroundColor: theme.cardBg, borderColor: theme.cardBorder, paddingBottom: insets.bottom + 12 },
+            ]}
+          >
+            <View style={styles.panelTopRow}>
+              <View style={[styles.dragHandle, { backgroundColor: theme.gray[300] }]} />
+              <TouchableOpacity
+                onPress={() => setShowEventsPanel(false)}
+                style={styles.closePanelButton}
+                accessibilityRole="button"
+                accessibilityLabel="Ocultar atajos y eventos"
+              >
+                <X size={20} color={theme.gray[700]} />
+              </TouchableOpacity>
+            </View>
 
-            {/* Botón de cerrar panel */}
-            <TouchableOpacity 
-              onPress={() => setShowEventsPanel(false)} 
-              style={styles.closePanelButton}
-            >
-              <X size={18} color={theme.gray[600]} />
-            </TouchableOpacity>
-
-            {/* Fila Horizontal de Atajos Rápidos */}
+            {/* Atajos rápidos. "Ruta Inclusiva" es un interruptor y muestra su estado. */}
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
               style={styles.shortcutsWrapper}
               contentContainerStyle={styles.shortcutsContent}
             >
-              <TouchableOpacity style={styles.shortcutPill} onPress={() => handleShortcutPress('biblioteca')}>
-                <Text style={styles.shortcutEmoji}>📚</Text>
-                <Text style={[styles.shortcutText, { color: theme.gray[800] }]}>Biblioteca</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.shortcutPill} onPress={() => handleShortcutPress('comida')}>
-                <Text style={styles.shortcutEmoji}>🍔</Text>
-                <Text style={[styles.shortcutText, { color: theme.gray[800] }]}>Cafetería</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.shortcutPill} onPress={() => handleShortcutPress('baños')}>
-                <Text style={styles.shortcutEmoji}>🚻</Text>
-                <Text style={[styles.shortcutText, { color: theme.gray[800] }]}>Baños</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.shortcutPill} onPress={toggleAccessibilityShortcut}>
-                <Text style={styles.shortcutEmoji}>♿</Text>
-                <Text style={[styles.shortcutText, { color: theme.gray[800] }]}>Ruta Inclusiva</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.shortcutPill} onPress={() => handleShortcutPress('entrada')}>
-                <Text style={styles.shortcutEmoji}>🚪</Text>
-                <Text style={[styles.shortcutText, { color: theme.gray[800] }]}>Entrada Principal</Text>
-              </TouchableOpacity>
+              {shortcuts.map((item) => {
+                const active = item.isToggle && item.active;
+                return (
+                  <TouchableOpacity
+                    key={item.key}
+                    style={[
+                      styles.shortcutPill,
+                      active && { backgroundColor: theme.primary, borderColor: theme.primary },
+                    ]}
+                    onPress={item.onPress}
+                    accessibilityRole={item.isToggle ? 'switch' : 'button'}
+                    accessibilityLabel={item.label}
+                    accessibilityState={item.isToggle ? { checked: Boolean(item.active) } : undefined}
+                  >
+                    <Text style={styles.shortcutEmoji}>{item.emoji}</Text>
+                    <Text style={[styles.shortcutText, { color: active ? '#ffffff' : theme.gray[800] }]}>
+                      {item.label}
+                    </Text>
+                    {active ? <Check size={16} color="#ffffff" style={styles.shortcutCheck} /> : null}
+                  </TouchableOpacity>
+                );
+              })}
             </ScrollView>
 
             {/* Carrusel de eventos vinculado a rutas directas */}
@@ -615,17 +712,31 @@ export default function MapScreen() {
           </View>
         ) : (
           <TouchableOpacity
-            style={[styles.floatingEventsFab, { backgroundColor: theme.primary }]}
+            style={[styles.floatingEventsFab, { backgroundColor: theme.primary, bottom: insets.bottom + 20 }]}
             onPress={() => setShowEventsPanel(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Mostrar atajos y eventos"
           >
             <Calendar size={18} color="#ffffff" />
-            <Text style={styles.floatingEventsFabText}>Eventos y Atajos 📅</Text>
+            <Text style={styles.floatingEventsFabText}>Atajos y eventos</Text>
+            {isAccessibilityActive ? <Text style={styles.fabBadge}>♿</Text> : null}
           </TouchableOpacity>
         )}
       </View>
 
       {selectedBuilding && (
-        <Animated.View style={[styles.infoPanel, animatedPanelStyle, { backgroundColor: theme.cardBg, borderColor: theme.cardBorder, borderTopWidth: 1.5 }]}>
+        <Animated.View
+          style={[
+            styles.infoPanel,
+            animatedPanelStyle,
+            {
+              backgroundColor: theme.background,
+              borderColor: theme.cardBorder,
+              height: windowHeight * INFO_PANEL_RATIO + insets.bottom,
+              paddingBottom: insets.bottom + 12,
+            },
+          ]}
+        >
           <BuildingInfoPanel
             building={selectedBuilding}
             onClose={closeInfoPanel}
@@ -634,6 +745,8 @@ export default function MapScreen() {
             navigationState={navigationState}
             onStartNavigation={handleStartNavigation}
             onStopNavigation={handleStopNavigation}
+            isAccessibleRoute={isAccessibilityActive}
+            isRouting={isRouting}
           />
         </Animated.View>
       )}
@@ -666,15 +779,26 @@ const styles = StyleSheet.create({
     top: 12,
     left: 12,
     right: 12,
-    zIndex: 50,
+    // Por encima de los botones flotantes: la lista de resultados se despliega sobre ellos.
+    zIndex: 200,
+    elevation: 12,
+  },
+  view3DButton: {
+    top: 136,
+    flexDirection: 'column',
+  },
+  view3DText: {
+    fontSize: 10,
+    fontFamily: 'Roboto-Bold',
+    marginTop: -1,
   },
   locateButton: {
     position: 'absolute',
     right: 16,
-    top: 76,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    top: 80,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
     elevation: 4,
@@ -692,8 +816,8 @@ const styles = StyleSheet.create({
     right: 0,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    paddingTop: 8,
-    paddingBottom: 16,
+    borderTopWidth: 1,
+    paddingTop: 4,
     elevation: 10,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: -3 },
@@ -701,15 +825,18 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     zIndex: 90,
   },
+  panelTopRow: {
+    height: MIN_TOUCH_TARGET,
+    justifyContent: 'center',
+  },
   dragHandle: {
-    width: 38,
+    width: 40,
     height: 5,
-    borderRadius: 2.5,
+    borderRadius: 3,
     alignSelf: 'center',
-    marginBottom: 6,
   },
   shortcutsWrapper: {
-    marginVertical: 4,
+    marginBottom: 4,
   },
   shortcutsContent: {
     paddingHorizontal: DIMENSIONS.spacing.md,
@@ -719,32 +846,30 @@ const styles = StyleSheet.create({
   shortcutPill: {
     flexDirection: 'row',
     alignItems: 'center',
+    minHeight: MIN_TOUCH_TARGET,
     backgroundColor: '#ffffff',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 20,
-    borderWidth: 1.2,
-    borderColor: '#e2e8f0',
-    elevation: 2,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 1.5,
+    paddingHorizontal: 14,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
   },
   shortcutEmoji: {
-    fontSize: 13,
-    marginRight: 5,
+    fontSize: 15,
+    marginRight: 6,
   },
   shortcutText: {
-    fontSize: 11,
-    fontFamily: 'Roboto-Bold',
+    fontSize: 14,
+    fontFamily: 'Roboto-Medium',
+  },
+  shortcutCheck: {
+    marginLeft: 6,
   },
   infoPanel: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    height: windowHeight * 0.5,
+    borderTopWidth: 1,
     backgroundColor: COLORS.white,
     borderTopLeftRadius: DIMENSIONS.borderRadius.xl,
     borderTopRightRadius: DIMENSIONS.borderRadius.xl,
@@ -754,12 +879,16 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 8,
     zIndex: 150,
-    paddingBottom: 10,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    fontFamily: 'Roboto-Regular',
   },
   floatingEventsFab: {
     position: 'absolute',
@@ -767,8 +896,8 @@ const styles = StyleSheet.create({
     right: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    minHeight: 48,
+    paddingHorizontal: 18,
     borderRadius: 24,
     elevation: 6,
     shadowColor: '#000000',
@@ -779,15 +908,22 @@ const styles = StyleSheet.create({
   },
   floatingEventsFabText: {
     color: '#ffffff',
-    fontSize: 12,
-    fontFamily: 'Roboto-Bold',
-    marginLeft: 6,
+    fontSize: 14,
+    fontFamily: 'Roboto-Medium',
+    marginLeft: 8,
+  },
+  fabBadge: {
+    marginLeft: 8,
+    fontSize: 14,
   },
   closePanelButton: {
     position: 'absolute',
-    top: 8,
-    right: 16,
-    padding: 4,
+    top: 0,
+    right: 8,
+    width: MIN_TOUCH_TARGET,
+    height: MIN_TOUCH_TARGET,
+    alignItems: 'center',
+    justifyContent: 'center',
     zIndex: 95,
   },
 });

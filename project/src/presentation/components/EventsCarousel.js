@@ -1,18 +1,25 @@
 import { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Dimensions } from 'react-native';
-import { Calendar, MapPin } from 'lucide-react-native';
+import { Calendar, MapPin, Navigation } from 'lucide-react-native';
 import { DIMENSIONS } from '../../core/constants/dimensions';
+import { MIN_TOUCH_TARGET } from '../../core/constants/colors';
 import { useTheme } from '../../core/context/ThemeContext';
 
 const { width } = Dimensions.get('window');
-const CARD_WIDTH = width * 0.78;
+const CARD_WIDTH = width * 0.82;
+// Con más eventos que esto, los puntos de paginación ya no caben: se muestra "3 de 19".
+const MAX_DOTS = 7;
 
+/**
+ * Carrusel de eventos en tarjetas compactas (imagen a la izquierda). La tarjeta anterior medía
+ * ~260 dp de alto y, junto con los atajos, el panel tapaba más de la mitad del mapa.
+ */
 export default function EventsCarousel({ events, onRouteToEvent }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const { theme } = useTheme();
 
   const formatDate = (date) => {
-    return date.toLocaleDateString('es-ES', {
+    return date.toLocaleDateString('es-MX', {
       day: 'numeric',
       month: 'short',
       year: 'numeric',
@@ -22,7 +29,7 @@ export default function EventsCarousel({ events, onRouteToEvent }) {
   const handleScroll = (event) => {
     const slideSize = CARD_WIDTH + DIMENSIONS.spacing.md;
     const index = Math.round(event.nativeEvent.contentOffset.x / slideSize);
-    setActiveIndex(index);
+    setActiveIndex(Math.max(0, Math.min(index, events.length - 1)));
   };
 
   if (!events || events.length === 0) {
@@ -31,8 +38,15 @@ export default function EventsCarousel({ events, onRouteToEvent }) {
 
   return (
     <View style={styles.container}>
-      <Text style={[styles.title, { color: theme.primary }]}>Eventos del Campus</Text>
-      
+      <View style={styles.titleRow}>
+        <Text style={[styles.title, { color: theme.primary }]} accessibilityRole="header">Eventos del campus</Text>
+        {events.length > MAX_DOTS ? (
+          <Text style={[styles.counter, { color: theme.gray[700] }]}>
+            {activeIndex + 1} de {events.length}
+          </Text>
+        ) : null}
+      </View>
+
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -43,61 +57,60 @@ export default function EventsCarousel({ events, onRouteToEvent }) {
         onScroll={handleScroll}
         scrollEventThrottle={16}
       >
-        {events.map((event, index) => (
-          <View key={event.id} style={styles.eventCard}>
-            <Image source={{ uri: event.image }} style={styles.eventImage} />
-            
+        {events.map((event) => (
+          <View key={event.id} style={[styles.eventCard, { borderColor: theme.gray[200] }]}>
+            <Image source={{ uri: event.image }} style={styles.eventImage} accessibilityIgnoresInvertColors />
+
             <View style={styles.eventContent}>
-              <Text style={styles.eventTitle} numberOfLines={1}>
+              <Text style={[styles.eventTitle, { color: theme.text }]} numberOfLines={1}>
                 {event.title}
               </Text>
-              
-              <Text style={styles.eventDescription} numberOfLines={2}>
-                {event.description}
-              </Text>
-              
-              <View style={styles.eventDetails}>
-                <View style={styles.eventDetail}>
-                  <Calendar size={13} color={theme.primary} />
-                  <Text style={styles.eventDetailText}>
-                    {formatDate(event.date)}
-                  </Text>
-                </View>
-                
-                {event.location && (
-                  <View style={styles.eventDetail}>
-                    <MapPin size={13} color={theme.primary} />
-                    <Text style={styles.eventDetailText}>
-                      {event.location}
-                    </Text>
-                  </View>
-                )}
+
+              <View style={styles.eventDetail}>
+                <Calendar size={14} color={theme.primary} />
+                <Text style={styles.eventDetailText} numberOfLines={1}>
+                  {formatDate(event.date)}
+                </Text>
               </View>
 
-              {/* Botón de cómo llegar */}
+              {event.location ? (
+                <View style={styles.eventDetail}>
+                  <MapPin size={14} color={theme.primary} />
+                  <Text style={styles.eventDetailText} numberOfLines={1}>
+                    {event.location}
+                  </Text>
+                </View>
+              ) : null}
+
               <TouchableOpacity
-                style={[styles.routeButton, { backgroundColor: theme.primary }]}
+                style={styles.routeButton}
                 onPress={() => onRouteToEvent && onRouteToEvent(event.location)}
+                accessibilityRole="button"
+                accessibilityLabel={`Cómo llegar a ${event.title}`}
               >
-                <MapPin size={13} color="#ffffff" style={{ marginRight: 6 }} />
-                <Text style={styles.routeButtonText}>¿Cómo llegar? 📍</Text>
+                <Navigation size={16} color={theme.primary} style={{ marginRight: 6 }} />
+                <Text style={[styles.routeButtonText, { color: theme.primary }]}>Cómo llegar</Text>
               </TouchableOpacity>
             </View>
           </View>
         ))}
       </ScrollView>
 
-      <View style={styles.pagination}>
-        {events.map((_, index) => (
-          <View
-            key={index}
-            style={[
-              styles.paginationDot,
-              index === activeIndex ? [styles.paginationDotActive, { backgroundColor: theme.primary }] : { backgroundColor: theme.gray[300] },
-            ]}
-          />
-        ))}
-      </View>
+      {events.length <= MAX_DOTS ? (
+        <View style={styles.pagination}>
+          {events.map((_, index) => (
+            <View
+              key={index}
+              style={[
+                styles.paginationDot,
+                index === activeIndex
+                  ? [styles.paginationDotActive, { backgroundColor: theme.primary }]
+                  : { backgroundColor: theme.gray[300] },
+              ]}
+            />
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -106,80 +119,70 @@ const styles = StyleSheet.create({
   container: {
     paddingTop: DIMENSIONS.spacing.xs,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    paddingHorizontal: DIMENSIONS.spacing.md,
+    marginBottom: DIMENSIONS.spacing.sm,
+  },
   title: {
     fontSize: DIMENSIONS.fontSize.md,
     fontFamily: 'Roboto-Bold',
-    marginBottom: DIMENSIONS.spacing.sm,
-    paddingHorizontal: DIMENSIONS.spacing.md,
+  },
+  counter: {
+    fontSize: 13,
+    fontFamily: 'Roboto-Regular',
   },
   scrollContainer: {
     paddingHorizontal: DIMENSIONS.spacing.md,
-    paddingBottom: 8,
+    paddingBottom: 4,
   },
   eventCard: {
     width: CARD_WIDTH,
+    flexDirection: 'row',
     backgroundColor: '#ffffff',
     borderRadius: DIMENSIONS.borderRadius.lg,
     marginRight: DIMENSIONS.spacing.md,
-    elevation: 3,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 1.5 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    overflow: 'hidden',
-    borderColor: '#f0f0f0',
     borderWidth: 1,
+    overflow: 'hidden',
   },
   eventImage: {
-    width: '100%',
-    height: 95,
+    width: 96,
+    alignSelf: 'stretch',
     resizeMode: 'cover',
   },
   eventContent: {
-    padding: DIMENSIONS.spacing.md,
+    flex: 1,
+    paddingHorizontal: DIMENSIONS.spacing.md,
+    paddingTop: DIMENSIONS.spacing.sm,
   },
   eventTitle: {
     fontSize: DIMENSIONS.fontSize.md,
     fontFamily: 'Roboto-Bold',
-    color: '#333333',
     marginBottom: 4,
-  },
-  eventDescription: {
-    fontSize: 12,
-    fontFamily: 'Roboto-Regular',
-    color: '#666666',
-    marginBottom: DIMENSIONS.spacing.sm,
-    lineHeight: 16,
-  },
-  eventDetails: {
-    gap: DIMENSIONS.spacing.xs,
-    marginBottom: DIMENSIONS.spacing.sm,
   },
   eventDetail: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 2,
   },
   eventDetailText: {
-    fontSize: 11,
+    flex: 1,
+    fontSize: 13,
     fontFamily: 'Roboto-Regular',
-    color: '#777777',
+    color: '#616161',
     marginLeft: DIMENSIONS.spacing.xs,
   },
   routeButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 7,
-    borderRadius: DIMENSIONS.borderRadius.md,
-    elevation: 1.5,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.12,
-    shadowRadius: 1.5,
+    alignSelf: 'flex-start',
+    minHeight: MIN_TOUCH_TARGET,
+    paddingRight: DIMENSIONS.spacing.sm,
   },
   routeButtonText: {
-    color: '#ffffff',
-    fontSize: 11,
+    fontSize: 14,
     fontFamily: 'Roboto-Bold',
   },
   pagination: {
@@ -187,7 +190,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingTop: DIMENSIONS.spacing.xs,
-    paddingBottom: DIMENSIONS.spacing.sm,
   },
   paginationDot: {
     width: 6,

@@ -1,9 +1,12 @@
 // Variables
 :root {
   // Colors
-  --color-primary: #2563eb;
-  --color-primary-light: #3b82f6;
-  --color-primary-dark: #1d4ed8;
+  // Primario = azul marino de la app móvil (SIGMA-BULL) para que el panel y la app se vean
+  // como un mismo producto. Antes era el azul genérico de Tailwind (#2563eb).
+  --color-primary: #0a3a60;
+  --color-primary-light: #164e7a;
+  --color-primary-dark: #072a46;
+  --color-primary-soft: #e8f1fa;
   
   --color-secondary: #14b8a6;
   --color-secondary-light: #20d0b9;
@@ -13,9 +16,11 @@
   --color-accent-light: #fbbf24;
   --color-accent-dark: #d97706;
   
-  --color-success: #10b981;
-  --color-warning: #f59e0b;
-  --color-error: #ef4444;
+  // Estados con contraste ≥ 4.5:1 sobre blanco (WCAG 2.1 AA), iguales a los de la app.
+  // Antes: #10b981 (2.5:1), #f59e0b (2.2:1), #ef4444 (3.8:1).
+  --color-success: #047857;
+  --color-warning: #a15c00;
+  --color-error: #c62828;
   
   --color-gray-50: #f9fafb;
   --color-gray-100: #f3f4f6;
@@ -115,6 +120,21 @@ body {
   min-height: 100vh;
 }
 
+// Los controles de formulario no heredan la fuente por defecto (se veían en Arial).
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+// Foco visible para navegar con teclado (WCAG 2.4.7).
+:focus-visible {
+  outline: 3px solid var(--color-primary-light);
+  outline-offset: 2px;
+}
+
 // Typography
 h1, h2, h3, h4, h5, h6 {
   font-weight: var(--font-weight-semibold);
@@ -208,8 +228,8 @@ a {
   letter-spacing: 0.05em;
   
   &--primary {
-    background-color: rgba(37, 99, 235, 0.1);
-    color: var(--color-primary-dark);
+    background-color: var(--color-primary-soft);
+    color: var(--color-primary);
   }
   
   &--secondary {
@@ -278,7 +298,7 @@ a {
   &:focus {
     outline: none;
     border-color: var(--color-primary);
-    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    box-shadow: 0 0 0 3px rgba(10, 58, 96, 0.15);
   }
 }
 

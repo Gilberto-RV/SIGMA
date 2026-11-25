@@ -1,10 +1,11 @@
-import { View, Text, StyleSheet, Switch, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Switch, TouchableOpacity, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState } from 'react';
-import { Bell, MapPin, Accessibility, Palette } from 'lucide-react-native';
+import { Bell, MapPin, Accessibility, Check } from 'lucide-react-native';
 import { COLORS } from '../../src/core/constants/colors';
 import { DIMENSIONS } from '../../src/core/constants/dimensions';
 import { useTheme } from '../../src/core/context/ThemeContext';
+import MapHeader from '../../src/presentation/components/MapHeader';
 
 export default function SettingsScreen() {
   const { theme, setThemeById, THEMES } = useTheme();
@@ -24,20 +25,24 @@ export default function SettingsScreen() {
       <Switch
         value={value}
         onValueChange={onValueChange}
-        trackColor={{ false: theme.gray[300], true: theme.primary }}
+        trackColor={{ false: theme.gray[400], true: theme.primary }}
         thumbColor={value ? '#ffffff' : theme.gray[100]}
+        accessibilityLabel={title}
+        accessibilityHint={description}
       />
     </View>
   );
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      <View style={styles.content}>
-        <Text style={[styles.title, { color: theme.primary }]}>Configuración</Text>
-
+      <MapHeader title="Configuración" />
+      <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: theme.primary }]}>Identidad de Marca Blanca</Text>
-          <View style={styles.themeSelectorContainer}>
+          <Text style={[styles.sectionTitle, { color: theme.primary }]} accessibilityRole="header">Tema de color</Text>
+          <Text style={[styles.sectionHint, { color: theme.gray[700] }]}>
+            Cambia los colores y el nombre que muestra la app.
+          </Text>
+          <View style={styles.themeSelectorContainer} accessibilityRole="radiogroup">
             {Object.values(THEMES).map((item) => {
               const isActive = theme.id === item.id;
               return (
@@ -45,14 +50,24 @@ export default function SettingsScreen() {
                   key={item.id}
                   style={[
                     styles.themeCard,
-                    isActive && { borderColor: theme.primary, borderWidth: 2 }
+                    isActive && { borderColor: item.primary, borderWidth: 2 }
                   ]}
                   onPress={() => setThemeById(item.id)}
+                  accessibilityRole="radio"
+                  accessibilityLabel={`Tema ${item.name}`}
+                  accessibilityState={{ checked: isActive }}
                 >
                   <View style={[styles.colorPreview, { backgroundColor: item.primary }]}>
                     <View style={[styles.colorAccent, { backgroundColor: item.secondary }]} />
+                    {isActive ? (
+                      <View style={styles.checkOverlay}>
+                        <Check size={18} color="#ffffff" />
+                      </View>
+                    ) : null}
                   </View>
-                  <Text style={styles.themeCardText}>{item.name}</Text>
+                  <Text style={[styles.themeCardText, isActive && { color: item.primary }]} numberOfLines={2}>
+                    {item.name}
+                  </Text>
                 </TouchableOpacity>
               );
             })}
@@ -60,7 +75,7 @@ export default function SettingsScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: theme.primary }]}>Preferencias</Text>
+          <Text style={[styles.sectionTitle, { color: theme.primary }]} accessibilityRole="header">Preferencias</Text>
           
           <SettingItem
             icon={Bell}
@@ -88,19 +103,20 @@ export default function SettingsScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: theme.primary }]}>Información</Text>
-          
-          <TouchableOpacity style={styles.infoItem}>
+          <Text style={[styles.sectionTitle, { color: theme.primary }]} accessibilityRole="header">Información</Text>
+
+          {/* Eran botones sin acción; ahora son texto informativo. */}
+          <View style={styles.infoItem} accessible>
             <Text style={styles.infoTitle}>Acerca de</Text>
             <Text style={styles.infoDescription}>{theme.appName} v1.0.0</Text>
-          </TouchableOpacity>
+          </View>
 
-          <TouchableOpacity style={styles.infoItem}>
+          <View style={styles.infoItem} accessible>
             <Text style={styles.infoTitle}>Soporte</Text>
-            <Text style={styles.infoDescription}>Contactar al equipo técnico de Nabi-Go</Text>
-          </TouchableOpacity>
+            <Text style={styles.infoDescription}>Equipo técnico de {theme.appName}</Text>
+          </View>
         </View>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -111,20 +127,20 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.white,
   },
   content: {
-    flex: 1,
     padding: DIMENSIONS.spacing.lg,
-  },
-  title: {
-    fontSize: DIMENSIONS.fontSize.xxl,
-    fontFamily: 'Roboto-Bold',
-    marginBottom: DIMENSIONS.spacing.xl,
+    paddingBottom: DIMENSIONS.spacing.xxl,
   },
   section: {
     marginBottom: DIMENSIONS.spacing.xl,
   },
   sectionTitle: {
     fontSize: DIMENSIONS.fontSize.lg,
-    fontFamily: 'Roboto-Medium',
+    fontFamily: 'Roboto-Bold',
+    marginBottom: DIMENSIONS.spacing.xs,
+  },
+  sectionHint: {
+    fontSize: DIMENSIONS.fontSize.sm,
+    fontFamily: 'Roboto-Regular',
     marginBottom: DIMENSIONS.spacing.md,
   },
   themeSelectorContainer: {
@@ -135,11 +151,13 @@ const styles = StyleSheet.create({
   },
   themeCard: {
     flex: 1,
+    minHeight: 104,
     backgroundColor: '#ffffff',
-    borderRadius: DIMENSIONS.borderRadius.md,
+    borderRadius: DIMENSIONS.borderRadius.lg,
     padding: DIMENSIONS.spacing.sm,
     marginHorizontal: 4,
     alignItems: 'center',
+    justifyContent: 'center',
     borderColor: '#e0e0e0',
     borderWidth: 1,
     elevation: 2,
@@ -163,8 +181,14 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
   },
+  checkOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.25)',
+  },
   themeCardText: {
-    fontSize: 9,
+    fontSize: 12,
     fontFamily: 'Roboto-Medium',
     textAlign: 'center',
     color: '#424242',

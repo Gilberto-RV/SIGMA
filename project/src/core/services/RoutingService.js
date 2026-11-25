@@ -1,4 +1,6 @@
-import { geoJSONToCoordinates } from '../utils/geoAdapters.js';
+import { geoJSONToCoordinates, calculateHaversineDistance, isValidCoordinate } from '../utils/geoAdapters.js';
+
+const WALKING_SPEED_MPS = 1.3;
 
 /**
  * @typedef {Object} RouteResult
@@ -46,6 +48,22 @@ export function concatenateCoordinates(segmentsCoordinates) {
  * Coordinador de rutas utilizando motores externos (OSRM), motores internos (Dijkstra)
  * y resolución automática de accesos al campus (CampusAccessService).
  */
+/**
+ * Tramo en línea recta usado cuando el servidor OSRM no responde.
+ * @returns {import('./RoutingService.js').RouteResult | null} null si los extremos no son coordenadas.
+ */
+export function buildDirectSegment(from, to, cause = null) {
+  if (!isValidCoordinate(from) || !isValidCoordinate(to)) return null;
+  const distanceMeters = calculateHaversineDistance(from, to);
+  return {
+    coordinates: [from, to],
+    distanceMeters: Math.round(distanceMeters),
+    durationSeconds: Math.round(distanceMeters / WALKING_SPEED_MPS),
+    provider: 'direct',
+    metadata: { fallback: true, reason: cause?.message || 'Servidor de rutas no disponible' },
+  };
+}
+
 export class RoutingService {
   /**
    * @param {Object} dependencies
@@ -71,7 +89,7 @@ export class RoutingService {
    * @param {{ latitude: number, longitude: number }} origin Coordenada de origen.
    * @param {{ latitude: number, longitude: number }} destination Coordenada de destino.
    * @param {Object} [options]
-   * @param {'driving' | 'foot' | 'bike'} [options.profile='driving'] Perfil de movilidad.
+   * @param {string} [options.profile] Perfil de la URL de OSRM (por defecto OSRM_PROFILE de mapConfig).
    * @returns {Promise<RouteResult>} Resultado de ruta normalizado en formato SIGMA.
    */
   async calculateExternalRoute(origin, destination, options = {}) {
@@ -90,7 +108,7 @@ export class RoutingService {
       durationSeconds: Math.round(osrmRoute.duration || 0),
       provider: 'osrm',
       metadata: {
-        profile: options.profile || 'driving',
+        profile: options.profile || 'default',
         weightName: osrmRoute.weight_name || null,
         weight: osrmRoute.weight || 0,
         legCount: Array.isArray(osrmRoute.legs) ? osrmRoute.legs.length : 0,
@@ -125,7 +143,8 @@ export class RoutingService {
    * @param {boolean} [options.isDestinationInternal] Sobrescribe la detección automática de destino interno.
    * @param {{ latitude: number, longitude: number } | string} [options.entryPoint] Punto de acceso al campus opcional.
    * @param {{ latitude: number, longitude: number } | string} [options.exitPoint] Punto de salida del campus opcional.
-   * @param {'driving' | 'foot' | 'bike'} [options.externalProfile='driving'] Perfil para OSRM.
+   * @param {string} [options.externalProfile] Perfil de OSRM para tramos externos.
+   * @param {boolean} [options.allowDirectFallback=true] Si OSRM falla, usar un tramo en línea recta.
    * @returns {Promise<RouteResult>} Resultado unificado de la ruta.
    */
   async calculateHybridRoute(origin, destination, options = {}) {
@@ -152,7 +171,7 @@ export class RoutingService {
     if (!isOriginInternal && !isDestinationInternal && !options.entryPoint && !options.exitPoint) {
       return await this.calculateExternalRoute(origin, destination, {
         ...options,
-        profile: options.externalProfile || options.profile || 'driving',
+        profile: options.externalProfile || options.profile,
       });
     }
 
@@ -211,6 +230,7 @@ export class RoutingService {
     }
 
     // Ejecución de los segmentos
+    const warnings = [];
     const executedSegments = [];
     const segmentsCoordinates = [];
     let totalDistanceMeters = 0;
@@ -222,10 +242,19 @@ export class RoutingService {
 
       try {
         if (segDef.provider === 'osrm') {
-          segResult = await this.calculateExternalRoute(segDef.from, segDef.to, {
-            ...options,
-            profile: options.externalProfile || options.profile || 'driving',
-          });
+          try {
+            segResult = await this.calculateExternalRoute(segDef.from, segDef.to, {
+              ...options,
+              profile: options.externalProfile || options.profile,
+            });
+          } catch (osrmError) {
+            // Sin servidor de rutas externo: tramo directo aproximado hasta/desde la entrada,
+            // para que la parte dentro del campus (lo importante) siga funcionando.
+            const direct = options.allowDirectFallback === false ? null : buildDirectSegment(segDef.from, segDef.to, osrmError);
+            if (!direct) throw osrmError;
+            segResult = direct;
+            warnings.push('external_route_unavailable');
+          }
         } else {
           segResult = await this.calculateCampusRoute(segDef.from, segDef.to, options);
         }
@@ -265,6 +294,7 @@ export class RoutingService {
         selectedExitPoint: selectedExitPointObj || resolvedExitPoint || null,
         segmentCount: executedSegments.length,
         segments: executedSegments,
+        warnings,
       },
     };
   }

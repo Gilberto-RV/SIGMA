@@ -1,12 +1,13 @@
 import { useEffect } from 'react';
 import { useRouter } from 'expo-router';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, ActivityIndicator, StyleSheet, Text } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { serviceContainer } from '../../src/infrastructure/di/ServiceContainer';
-import { COLORS } from '../../src/core/constants/colors';
+import { useTheme } from '../../src/core/context/ThemeContext';
 
 export default function AuthIndex() {
   const router = useRouter();
+  const { theme } = useTheme();
   const authUseCases = serviceContainer.get('authUseCases');
 
   useEffect(() => {
@@ -38,8 +39,13 @@ export default function AuthIndex() {
   };
 
   return (
-    <View style={styles.container}>
-      <ActivityIndicator size="large" color={COLORS.primary} />
+    <View
+      style={[styles.container, { backgroundColor: theme.background }]}
+      accessibilityRole="progressbar"
+      accessibilityLabel="Verificando tu sesión"
+    >
+      <ActivityIndicator size="large" color={theme.primary} />
+      <Text style={[styles.text, { color: theme.gray[700] }]}>Verificando tu sesión…</Text>
     </View>
   );
 }
@@ -49,6 +55,10 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: COLORS.white,
+  },
+  text: {
+    marginTop: 12,
+    fontSize: 14,
+    fontFamily: 'Roboto-Regular',
   },
 });

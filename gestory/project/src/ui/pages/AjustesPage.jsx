@@ -74,8 +74,10 @@ export function AjustesPage() {
   return (
     <div className="ajustes-page">
       <div className="page-header">
-        <h1>Configuración</h1>
-        <p>Gestiona tu perfil y configuración del sistema</p>
+        <div>
+          <h1>Configuración</h1>
+          <p>Gestiona tu perfil y configuración del sistema</p>
+        </div>
       </div>
 
       <div className="ajustes-content">
@@ -99,11 +101,18 @@ export function AjustesPage() {
                 <h3>Información del Perfil</h3>
 
                 <div className="avatar-preview">
-                  <img 
-                    src={currentUser.avatar || 'https://via.placeholder.com/100'} 
-                    alt="Avatar" 
-                    style={{ width: 100, height: 100, borderRadius: '50%', objectFit: 'cover' }}
-                  />
+                  {/* Sin foto se muestra la inicial (antes se pedía una imagen a via.placeholder.com). */}
+                  {currentUser.avatar ? (
+                    <img
+                      src={currentUser.avatar}
+                      alt="Foto de perfil"
+                      style={{ width: 100, height: 100, borderRadius: '50%', objectFit: 'cover' }}
+                    />
+                  ) : (
+                    <div className="avatar-initial" aria-hidden="true">
+                      {(currentUser.email || '?').charAt(0).toUpperCase()}
+                    </div>
+                  )}
                 </div>
 
                 {/* El correo identifica la cuenta y no se puede cambiar desde aquí */}
