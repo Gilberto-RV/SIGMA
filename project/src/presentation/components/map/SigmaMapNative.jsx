@@ -243,27 +243,28 @@ export const SigmaMapNative = forwardRef(function SigmaMapNative(
           data={buildings || EMPTY_COLLECTION}
           onPress={onBuildingPress ? handleBuildingSourcePress : undefined}
         >
-          {is3D ? (
-            <Layer
-              id="campus-buildings-3d"
-              type="fill-extrusion"
-              paint={{
-                'fill-extrusion-color': ['case', isSelectedExpr, colors.secondary, '#5b7c99'],
-                'fill-extrusion-height': ['coalesce', ['get', 'altura_m'], SIGMA_DEFAULT_BUILDING_HEIGHT_M],
-                'fill-extrusion-base': 0,
-                'fill-extrusion-opacity': 0.85,
-              }}
-            />
-          ) : (
-            <Layer
-              id="campus-buildings-fill"
-              type="fill"
-              paint={{
-                'fill-color': ['case', isSelectedExpr, colors.secondary, colors.primary],
-                'fill-opacity': ['case', isSelectedExpr, 0.5, 0.2],
-              }}
-            />
-          )}
+          {/* Ambas capas quedan montadas y se alterna su visibilidad: MapLibre RN v11 no permite
+              cambiar el `id` de un Layer ya montado (un ternario en la misma posición lo hacía). */}
+          <Layer
+            id="campus-buildings-fill"
+            type="fill"
+            layout={{ visibility: is3D ? 'none' : 'visible' }}
+            paint={{
+              'fill-color': ['case', isSelectedExpr, colors.secondary, colors.primary],
+              'fill-opacity': ['case', isSelectedExpr, 0.5, 0.2],
+            }}
+          />
+          <Layer
+            id="campus-buildings-3d"
+            type="fill-extrusion"
+            layout={{ visibility: is3D ? 'visible' : 'none' }}
+            paint={{
+              'fill-extrusion-color': ['case', isSelectedExpr, colors.secondary, '#5b7c99'],
+              'fill-extrusion-height': ['coalesce', ['get', 'altura_m'], SIGMA_DEFAULT_BUILDING_HEIGHT_M],
+              'fill-extrusion-base': 0,
+              'fill-extrusion-opacity': 0.85,
+            }}
+          />
           <Layer
             id="campus-buildings-outline"
             type="line"
