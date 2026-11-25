@@ -39,8 +39,8 @@ export function LoginPage() {
           <div className="logo">
             <Building2 size={40} />
           </div>
-          <h1>Panel de Administración</h1>
-          <p>Gestor de Eventos y Edificios</p>
+          <h1>Gestory</h1>
+          <p>Panel de administración de SIGMA-BULL</p>
         </div>
 
         <form className="login-form" onSubmit={handleSubmit(onSubmit)}>
@@ -84,7 +84,7 @@ export function LoginPage() {
         </form>
 
         <div className="login-footer">
-          <p>Solo administradores pueden acceder a este panel</p>
+          <p>Acceso solo para personal administrador del campus</p>
         </div>
       </div>
     </div>

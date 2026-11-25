@@ -11,6 +11,22 @@ import './EdificiosPage.scss';
 
 const buildingUseCases = new BuildingUseCases();
 
+// La BD guarda la frecuencia en español ("Media"); antes solo se reconocían "high/medium/low"
+// y la insignia salía vacía.
+const FREQUENCY_BADGES = {
+  alta: { label: 'Alta', className: 'badge--danger' },
+  media: { label: 'Media', className: 'badge--warning' },
+  baja: { label: 'Baja', className: 'badge--success' },
+};
+
+function frequencyLevel(value) {
+  const v = String(value || '').toLowerCase();
+  if (v === 'high' || v === 'alta') return 'alta';
+  if (v === 'medium' || v === 'media') return 'media';
+  if (v === 'low' || v === 'baja') return 'baja';
+  return null;
+}
+
 export function EdificiosPage() {
   const [buildings, setBuildings] = useState([]);
   const [filters, setFilters] = useState({
@@ -140,17 +156,11 @@ export function EdificiosPage() {
                     </span>
                   </div>
 
-                  {b.student_frequency && (
+                  {frequencyLevel(b.student_frequency) && (
                     <div className="detalle-item">
                       <strong>Frecuencia estudiantil:</strong>
-                      <span className={`badge ${
-                        b.student_frequency === 'high' ? 'badge--danger' :
-                        b.student_frequency === 'medium' ? 'badge--warning' :
-                        'badge--success'
-                      }`}>
-                        {b.student_frequency === 'high' && 'Alta'}
-                        {b.student_frequency === 'medium' && 'Media'}
-                        {b.student_frequency === 'low' && 'Baja'}
+                      <span className={`badge ${FREQUENCY_BADGES[frequencyLevel(b.student_frequency)].className}`}>
+                        {FREQUENCY_BADGES[frequencyLevel(b.student_frequency)].label}
                       </span>
                     </div>
                   )}

@@ -15,7 +15,10 @@
     width: 80px;
     
     .sidebar-header {
-      .logo span {
+      padding-left: var(--spacing-5);
+      padding-right: var(--spacing-2);
+
+      .logo .logo-text {
         opacity: 0;
         width: 0;
       }
@@ -42,11 +45,34 @@
     color: var(--color-primary);
     font-size: var(--font-size-xl);
     font-weight: var(--font-weight-bold);
-    
-    span {
+
+    .logo-mark {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 40px;
+      height: 40px;
+      flex-shrink: 0;
+      border-radius: var(--border-radius-xl);
+      background-color: var(--color-primary);
+      color: var(--color-white);
+    }
+
+    .logo-text {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.1;
       transition: all var(--transition-normal);
       white-space: nowrap;
       overflow: hidden;
+
+      small {
+        margin-top: 4px;
+        font-size: var(--font-size-xs);
+        font-weight: var(--font-weight-medium);
+        color: var(--color-gray-600);
+        letter-spacing: 0.04em;
+      }
     }
   }
   
@@ -99,6 +125,7 @@
     &.active {
       background-color: var(--color-primary);
       color: var(--color-white);
+      font-weight: var(--font-weight-semibold);
     }
   }
 }

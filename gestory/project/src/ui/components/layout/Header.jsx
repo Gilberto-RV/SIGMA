@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Menu, Bell, User, LogOut } from 'lucide-react';
+import { Menu, User, LogOut } from 'lucide-react';
 import { AuthUseCases } from '../../../application/usecases/AuthUseCases.js';
 import { useNavigate } from 'react-router-dom';
 import './Header.scss';
@@ -23,26 +23,25 @@ export function Header({ onToggleSidebar }) {
   return (
     <header className="header">
       <div className="header-left">
-        <button className="menu-btn" onClick={onToggleSidebar}>
+        <button className="menu-btn" onClick={onToggleSidebar} aria-label="Abrir menú">
           <Menu size={20} />
         </button>
       </div>
       
       <div className="header-right">
-        <button className="notification-btn">
-          <Bell size={20} />
-          <span className="notification-badge">3</span>
-        </button>
-        
+        {/* Se quitó la campana con un contador fijo en "3": no había notificaciones reales. */}
         <div className="user-menu">
-          <button 
+          <button
             className="user-btn"
             onClick={() => setShowUserMenu(!showUserMenu)}
+            aria-haspopup="menu"
+            aria-expanded={showUserMenu}
+            aria-label="Menú de la cuenta"
           >
             <div className="user-avatar">
               <User size={18} />
             </div>
-            <span className="user-name">{currentUser?.nombre}</span>
+            <span className="user-name">{currentUser?.email}</span>
           </button>
           
           {showUserMenu && (

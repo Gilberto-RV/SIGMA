@@ -23,17 +23,17 @@ function PageLoader() {
       height: '60vh',
       flexDirection: 'column',
       gap: '16px',
-      color: '#3b82f6'
+      color: '#0a3a60'
     }}>
       <div style={{
         width: '40px',
         height: '40px',
-        border: '3px solid rgba(59, 130, 246, 0.2)',
-        borderTopColor: '#3b82f6',
+        border: '3px solid rgba(10, 58, 96, 0.2)',
+        borderTopColor: '#0a3a60',
         borderRadius: '50%',
         animation: 'spin 0.8s linear infinite'
       }} />
-      <span style={{ fontSize: '14px', color: '#64748b' }}>Cargando módulo...</span>
+      <span style={{ fontSize: '14px', color: '#4b5563' }}>Cargando…</span>
       <style>{`
         @keyframes spin {
           to { transform: rotate(360deg); }

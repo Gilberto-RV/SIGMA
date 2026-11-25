@@ -1,9 +1,8 @@
 @import '../../styles/globals.scss';
 
+// Mismo margen y encabezado que el resto de las páginas (el layout ya agrega padding).
 .bigdata-dashboard-page {
-  padding: 2rem;
   min-height: 100vh;
-  background-color: #f5f7fa;
 
   .page-header {
     display: flex;
@@ -12,10 +11,10 @@
     margin-bottom: 2rem;
 
     h1 {
-      font-size: 2rem;
-      font-weight: 700;
-      color: #1a202c;
-      margin: flushing 0;
+      font-size: var(--font-size-3xl);
+      font-weight: var(--font-weight-semibold);
+      color: var(--color-gray-900);
+      margin: 0;
     }
 
     p {
@@ -27,19 +26,21 @@
       display: flex;
       gap: 1rem;
 
+      // Antes: fondo gris claro con el texto blanco del botón primario (casi invisible).
       .btn-secondary {
         display: flex;
         align-items: center;
         gap: 0.5rem;
         padding: 0.75rem 1.5rem;
-        background: #edf2f7;
-        border: 1px solid #e2e8f0;
+        background: var(--color-white);
+        color: var(--color-primary);
+        border: 1.5px solid var(--color-primary);
         border-radius: 8px;
         cursor: pointer;
         transition: all 0.2s;
 
         &:hover:not(:disabled) {
-          background: #e2e8f0;
+          background: var(--color-primary-soft);
         }
 
         &:disabled {
@@ -151,68 +152,34 @@
         }
       }
 
+      // Tarjetas blancas con acento de color, como en el Tablero y en ML. Los degradados
+      // anteriores ponían texto blanco sobre cian o amarillo (contraste de 1.3:1 a 2.7:1).
+      background: var(--color-white);
+      border: 1px solid var(--color-gray-200);
+      border-left-width: 4px;
+
+      .stat-info .stat-title {
+        color: var(--color-gray-600);
+      }
+
       &.stat-card--blue {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-
-        .stat-content .stat-icon {
-          background: rgba(255, 255, 255, 0.2);
-        }
-
-        .stat-info {
-          .stat-value,
-          .stat-title {
-            color: white;
-          }
-        }
+        border-left-color: var(--color-primary);
+        .stat-content .stat-icon { background: var(--color-primary-soft); color: var(--color-primary); }
       }
 
       &.stat-card--green {
-        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-        color: white;
-
-        .stat-content .stat-icon {
-          background: rgba(255, 255, 255, 0.2);
-        }
-
-        .stat-info {
-          .stat-value,
-          .stat-title {
-            color: white;
-          }
-        }
+        border-left-color: var(--color-success);
+        .stat-content .stat-icon { background: #e6f4ef; color: var(--color-success); }
       }
 
       &.stat-card--purple {
-        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-        color: white;
-
-        .stat-content .stat-icon {
-          background: rgba(255, 255, 255, 0.2);
-        }
-
-        .stat-info {
-          .stat-value,
-          .stat-title {
-            color: white;
-          }
-        }
+        border-left-color: #6d28d9;
+        .stat-content .stat-icon { background: #f1ebfd; color: #6d28d9; }
       }
 
       &.stat-card--orange {
-        background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
-        color: white;
-
-        .stat-content .stat-icon {
-          background: rgba(255, 255, 255, 0.2);
-        }
-
-        .stat-info {
-          .stat-value,
-          .stat-title {
-            color: white;
-          }
-        }
+        border-left-color: var(--color-warning);
+        .stat-content .stat-icon { background: #fff4e0; color: var(--color-warning); }
       }
     }
   }
