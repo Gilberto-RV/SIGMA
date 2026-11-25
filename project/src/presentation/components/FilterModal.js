@@ -1,11 +1,16 @@
 import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Modal, TouchableOpacity, Switch } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { X } from 'lucide-react-native';
-import { COLORS } from '../../core/constants/colors';
+import { COLORS, MIN_TOUCH_TARGET } from '../../core/constants/colors';
 import { DIMENSIONS } from '../../core/constants/dimensions';
+import { useTheme } from '../../core/context/ThemeContext';
 
 export default function FilterModal({ visible, filters, onClose, onApply }) {
   const [localFilters, setLocalFilters] = useState(filters);
+  const { theme } = useTheme();
+  // El modal ocupa toda la pantalla en Android: los botones suben sobre la barra de navegación.
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     setLocalFilters(filters);
@@ -33,8 +38,10 @@ export default function FilterModal({ visible, filters, onClose, onApply }) {
       <Switch
         value={value}
         onValueChange={onValueChange}
-        trackColor={{ false: COLORS.gray[300], true: COLORS.primary }}
+        trackColor={{ false: COLORS.gray[400], true: theme.primary }}
         thumbColor={value ? COLORS.white : COLORS.gray[100]}
+        accessibilityLabel={label}
+        accessibilityHint={description}
       />
     </View>
   );
@@ -47,11 +54,16 @@ export default function FilterModal({ visible, filters, onClose, onApply }) {
       onRequestClose={onClose}
     >
       <View style={styles.overlay}>
-        <View style={styles.container}>
+        <View style={[styles.container, { paddingBottom: insets.bottom + DIMENSIONS.spacing.lg }]}>
           <View style={styles.header}>
-            <Text style={styles.title}>Filtros de Búsqueda</Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <X size={24} color={COLORS.gray[600]} />
+            <Text style={styles.title} accessibilityRole="header">Filtros de búsqueda</Text>
+            <TouchableOpacity
+              onPress={onClose}
+              style={styles.closeButton}
+              accessibilityRole="button"
+              accessibilityLabel="Cerrar filtros"
+            >
+              <X size={24} color={COLORS.gray[700]} />
             </TouchableOpacity>
           </View>
 
@@ -76,11 +88,21 @@ export default function FilterModal({ visible, filters, onClose, onApply }) {
           </View>
 
           <View style={styles.actions}>
-            <TouchableOpacity style={styles.resetButton} onPress={handleReset}>
-              <Text style={styles.resetButtonText}>Limpiar</Text>
+            <TouchableOpacity
+              style={[styles.resetButton, { borderColor: theme.primary }]}
+              onPress={handleReset}
+              accessibilityRole="button"
+              accessibilityLabel="Limpiar filtros"
+            >
+              <Text style={[styles.resetButtonText, { color: theme.primary }]}>Limpiar</Text>
             </TouchableOpacity>
-            
-            <TouchableOpacity style={styles.applyButton} onPress={handleApply}>
+
+            <TouchableOpacity
+              style={[styles.applyButton, { backgroundColor: theme.primary }]}
+              onPress={handleApply}
+              accessibilityRole="button"
+              accessibilityLabel="Aplicar filtros"
+            >
               <Text style={styles.applyButtonText}>Aplicar</Text>
             </TouchableOpacity>
           </View>
@@ -100,7 +122,6 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.white,
     borderTopLeftRadius: DIMENSIONS.borderRadius.xl,
     borderTopRightRadius: DIMENSIONS.borderRadius.xl,
-    paddingBottom: DIMENSIONS.spacing.xl,
   },
   header: {
     flexDirection: 'row',
@@ -117,7 +138,11 @@ const styles = StyleSheet.create({
     color: COLORS.gray[800],
   },
   closeButton: {
-    padding: DIMENSIONS.spacing.xs,
+    width: MIN_TOUCH_TARGET,
+    height: MIN_TOUCH_TARGET,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: -10,
   },
   content: {
     paddingHorizontal: DIMENSIONS.spacing.lg,
@@ -154,10 +179,12 @@ const styles = StyleSheet.create({
   },
   resetButton: {
     flex: 1,
-    backgroundColor: COLORS.gray[200],
-    borderRadius: DIMENSIONS.borderRadius.md,
-    padding: DIMENSIONS.spacing.md,
+    minHeight: 52,
+    backgroundColor: COLORS.white,
+    borderWidth: 1.5,
+    borderRadius: DIMENSIONS.borderRadius.lg,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   resetButtonText: {
     fontSize: DIMENSIONS.fontSize.md,
@@ -166,10 +193,11 @@ const styles = StyleSheet.create({
   },
   applyButton: {
     flex: 1,
+    minHeight: 52,
     backgroundColor: COLORS.primary,
-    borderRadius: DIMENSIONS.borderRadius.md,
-    padding: DIMENSIONS.spacing.md,
+    borderRadius: DIMENSIONS.borderRadius.lg,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   applyButtonText: {
     fontSize: DIMENSIONS.fontSize.md,

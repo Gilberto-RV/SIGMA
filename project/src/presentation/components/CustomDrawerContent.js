@@ -1,21 +1,34 @@
 import { View, Text, StyleSheet, TouchableOpacity, Alert, Image } from 'react-native';
 import { DrawerContentScrollView } from '@react-navigation/drawer';
 import { useRouter } from 'expo-router';
-import { User, Map, Settings, LogOut } from 'lucide-react-native';
+import { Map, Settings, LogOut, UserRound } from 'lucide-react-native';
 import { serviceContainer } from '../../infrastructure/di/ServiceContainer';
-import { COLORS } from '../../core/constants/colors';
 import { DIMENSIONS } from '../../core/constants/dimensions';
+import { useTheme } from '../../core/context/ThemeContext';
+
+const ROLE_LABELS = {
+  estudiante: 'Estudiante',
+  profesor: 'Profesor',
+  administrador: 'Administrador',
+};
+
+/** Inicial del correo para el avatar cuando el usuario no tiene foto. */
+export function initialFor(user) {
+  return (user?.email || '?').trim().charAt(0).toUpperCase();
+}
 
 export default function CustomDrawerContent(props) {
-  const { user } = props;
+  const { user, state, navigation } = props;
   const router = useRouter();
+  const { theme } = useTheme();
   const authUseCases = serviceContainer.get('authUseCases');
+  const activeRoute = state?.routes?.[state.index]?.name;
 
   const handleLogout = () => {
-    Alert.alert('Cerrar Sesión', '¿Estás seguro que deseas cerrar sesión?', [
+    Alert.alert('Cerrar sesión', '¿Seguro que quieres cerrar sesión?', [
       { text: 'Cancelar', style: 'cancel' },
       {
-        text: 'Cerrar Sesión',
+        text: 'Cerrar sesión',
         style: 'destructive',
         onPress: async () => {
           try {
@@ -30,132 +43,104 @@ export default function CustomDrawerContent(props) {
     ]);
   };
 
-  const DrawerItem = ({ icon: Icon, label, onPress, isLogout = false }) => (
-    <TouchableOpacity
-      style={[styles.drawerItem, isLogout && styles.logoutItem]}
-      onPress={onPress}
-    >
-      <Icon
-        size={24}
-        color={isLogout ? COLORS.error : COLORS.primary}
-        style={styles.drawerIcon}
-      />
-      <Text style={[styles.drawerLabel, isLogout && styles.logoutLabel]}>
-        {label}
-      </Text>
-    </TouchableOpacity>
-  );
+  const DrawerItem = ({ icon: Icon, label, route, onPress, color }) => {
+    const active = route && route === activeRoute;
+    const tint = color || (active ? theme.primary : theme.gray[800]);
+    return (
+      <TouchableOpacity
+        style={[styles.drawerItem, active && { backgroundColor: theme.primarySoft || '#e8f1fa' }]}
+        onPress={onPress || (() => navigation.navigate(route))}
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityState={{ selected: Boolean(active) }}
+      >
+        <Icon size={22} color={color || theme.primary} style={styles.drawerIcon} />
+        <Text style={[styles.drawerLabel, { color: tint }, active && styles.drawerLabelActive]}>{label}</Text>
+      </TouchableOpacity>
+    );
+  };
 
   return (
-    <DrawerContentScrollView {...props} style={styles.container}>
-      <View style={styles.header}>
+    <DrawerContentScrollView {...props} contentContainerStyle={styles.scroll} style={{ backgroundColor: theme.background }}>
+      <View style={[styles.header, { backgroundColor: theme.primary }]}>
         <View style={styles.avatarContainer}>
           {user?.avatar ? (
-            <Image
-              source={{ uri: user.avatar }}
-              style={styles.avatarImage}
-              resizeMode="cover"
-            />
+            <Image source={{ uri: user.avatar }} style={styles.avatarImage} resizeMode="cover" accessibilityIgnoresInvertColors />
           ) : (
-            <User size={40} color={COLORS.primary} />
+            <Text style={[styles.avatarInitial, { color: theme.primary }]}>{initialFor(user)}</Text>
           )}
         </View>
-        <View style={styles.userInfo}>
-          <Text style={styles.userName}>
-            {user?.email || 'usuario@correo.com'}
-          </Text>
-          <Text style={styles.userRole}>
-            {user?.role
-              ? user.role.charAt(0).toUpperCase() + user.role.slice(1)
-              : 'Invitado'}
-          </Text>
-        </View>
+        <Text style={styles.userName} numberOfLines={1}>
+          {user?.email || 'Visitante'}
+        </Text>
+        <Text style={styles.userRole}>{ROLE_LABELS[user?.role] || 'Sin sesión'}</Text>
       </View>
 
       <View style={styles.menu}>
-        <DrawerItem
-          icon={Map}
-          label="Mapa"
-          onPress={() => props.navigation.navigate('index')}
-        />
-        <DrawerItem
-          icon={User}
-          label="Mi Perfil"
-          onPress={() => props.navigation.navigate('profile')}
-        />
-        <DrawerItem
-          icon={Settings}
-          label="Configuración"
-          onPress={() => props.navigation.navigate('settings')}
-        />
+        <DrawerItem icon={Map} label="Mapa" route="index" />
+        <DrawerItem icon={UserRound} label="Mi perfil" route="profile" />
+        <DrawerItem icon={Settings} label="Configuración" route="settings" />
       </View>
 
-      <View style={styles.footer}>
-        <DrawerItem
-          icon={LogOut}
-          label="Cerrar Sesión"
-          onPress={handleLogout}
-          isLogout={true}
-        />
+      <View style={[styles.footer, { borderTopColor: theme.gray[200] }]}>
+        <DrawerItem icon={LogOut} label="Cerrar sesión" onPress={handleLogout} color={theme.error} />
       </View>
     </DrawerContentScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.white,
+  scroll: {
+    flexGrow: 1,
   },
+  // El encabezado empieza debajo de la barra de estado (sus íconos son oscuros).
   header: {
-    backgroundColor: COLORS.secondary,
-    padding: DIMENSIONS.spacing.lg,
-    marginBottom: DIMENSIONS.spacing.md,
-    alignItems: 'center',
+    paddingHorizontal: DIMENSIONS.spacing.lg,
+    paddingVertical: DIMENSIONS.spacing.lg,
+    marginHorizontal: DIMENSIONS.spacing.sm,
+    marginBottom: DIMENSIONS.spacing.sm,
+    borderRadius: DIMENSIONS.borderRadius.xl,
   },
   avatarContainer: {
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: COLORS.white,
+    backgroundColor: '#ffffff',
     justifyContent: 'center',
     alignItems: 'center',
     overflow: 'hidden',
-    marginBottom: DIMENSIONS.spacing.sm,
+    marginBottom: DIMENSIONS.spacing.md,
   },
   avatarImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 32,
   },
-  userInfo: {
-    alignItems: 'center',
+  avatarInitial: {
+    fontSize: 28,
+    fontFamily: 'Roboto-Bold',
   },
   userName: {
     fontSize: DIMENSIONS.fontSize.md,
     fontFamily: 'Roboto-Medium',
-    color: COLORS.primary,
+    color: '#ffffff',
   },
   userRole: {
     fontSize: DIMENSIONS.fontSize.sm,
     fontFamily: 'Roboto-Regular',
-    color: COLORS.gray[600],
+    color: 'rgba(255, 255, 255, 0.85)',
     marginTop: 2,
   },
   menu: {
     flex: 1,
-    paddingHorizontal: DIMENSIONS.spacing.md,
+    paddingHorizontal: DIMENSIONS.spacing.sm,
   },
   drawerItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: DIMENSIONS.spacing.md,
+    minHeight: 52,
     paddingHorizontal: DIMENSIONS.spacing.md,
-    marginVertical: DIMENSIONS.spacing.xs,
-    borderRadius: DIMENSIONS.borderRadius.md,
-  },
-  logoutItem: {
-    backgroundColor: COLORS.error + '10',
+    marginVertical: 2,
+    borderRadius: DIMENSIONS.borderRadius.lg,
   },
   drawerIcon: {
     marginRight: DIMENSIONS.spacing.md,
@@ -163,17 +148,13 @@ const styles = StyleSheet.create({
   drawerLabel: {
     fontSize: DIMENSIONS.fontSize.md,
     fontFamily: 'Roboto-Regular',
-    color: COLORS.gray[800],
   },
-  logoutLabel: {
-    color: COLORS.error,
+  drawerLabelActive: {
+    fontFamily: 'Roboto-Bold',
   },
   footer: {
-    paddingHorizontal: DIMENSIONS.spacing.md,
-    paddingBottom: DIMENSIONS.spacing.lg,
+    paddingHorizontal: DIMENSIONS.spacing.sm,
+    paddingVertical: DIMENSIONS.spacing.md,
     borderTopWidth: 1,
-    borderTopColor: COLORS.gray[200],
-    marginTop: DIMENSIONS.spacing.md,
-    paddingTop: DIMENSIONS.spacing.md,
   },
 });

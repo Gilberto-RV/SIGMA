@@ -1,10 +1,53 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView } from 'react-native';
-import { 
-  X, Accessibility, Layers, DoorOpen, Building, ArrowUpNarrowWide, Toilet, Library, GraduationCap
+import {
+  X, Accessibility, Layers, DoorOpen, Users, Toilet, Library, GraduationCap, Footprints, Navigation, Flag,
 } from 'lucide-react-native';
-import { COLORS } from '../../core/constants/colors';
 import { DIMENSIONS } from '../../core/constants/dimensions';
+import { MIN_TOUCH_TARGET } from '../../core/constants/colors';
+import { useTheme } from '../../core/context/ThemeContext';
+import PrimaryButton from './PrimaryButton';
+
+/** La BD guarda la afluencia en español ("Media") y el código antiguo esperaba "medium". */
+function normalizeFrequency(value) {
+  const v = String(value || '').toLowerCase();
+  if (v === 'high' || v === 'alta') return 'alta';
+  if (v === 'medium' || v === 'media') return 'media';
+  if (v === 'low' || v === 'baja') return 'baja';
+  return null;
+}
+
+export function formatDistance(meters) {
+  if (!Number.isFinite(meters)) return null;
+  if (meters < 1000) return `${Math.round(meters / 10) * 10} m`;
+  return `${(meters / 1000).toFixed(1)} km`;
+}
+
+export function formatWalkingTime(seconds) {
+  if (!Number.isFinite(seconds)) return null;
+  return `${Math.max(1, Math.round(seconds / 60))} min a pie`;
+}
+
+function Chip({ icon: Icon, label, color, background }) {
+  return (
+    <View style={[styles.chip, { backgroundColor: background }]}>
+      <Icon size={14} color={color} />
+      <Text style={[styles.chipText, { color }]}>{label}</Text>
+    </View>
+  );
+}
+
+function Section({ icon: Icon, title, color, children }) {
+  return (
+    <View style={styles.section}>
+      <View style={styles.sectionHeader}>
+        <Icon size={16} color={color} />
+        <Text style={[styles.sectionTitle, { color }]} accessibilityRole="header">{title}</Text>
+      </View>
+      {children}
+    </View>
+  );
+}
 
 export default function BuildingInfoPanel({
   building,
@@ -14,198 +57,166 @@ export default function BuildingInfoPanel({
   navigationState = null,
   onStartNavigation = null,
   onStopNavigation = null,
+  isAccessibleRoute = false,
+  isRouting = false,
 }) {
+  const { theme } = useTheme();
   if (!building) return null;
 
   const isNavigating = navigationState?.isNavigating;
   const isFinished = navigationState?.status === 'finished';
+  const frequency = normalizeFrequency(building.student_frequency);
+  const frequencyColor = frequency === 'alta' ? theme.error : frequency === 'media' ? theme.warning : theme.success;
+  const bathroomFloors = Object.entries(building.bathrooms || {})
+    .filter(([, value]) => value === true)
+    .map(([floor]) => floor.replace('floor_', ''));
+
+  const distance = formatDistance(
+    isNavigating && Number.isFinite(navigationState?.distanceToDestinationMeters)
+      ? navigationState.distanceToDestinationMeters
+      : routeResult?.distanceMeters
+  );
+  const duration = formatWalkingTime(routeResult?.durationSeconds);
+  const muted = theme.gray[700];
 
   return (
     <View style={styles.container}>
+      <View style={[styles.handle, { backgroundColor: theme.gray[300] }]} />
+
       <View style={styles.header}>
-        <Text style={styles.title}>{building.name}</Text>
-        <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-          <X size={24} color={COLORS.gray[600]} />
+        <View style={styles.headerText}>
+          <Text style={[styles.title, { color: theme.text }]} accessibilityRole="header" numberOfLines={2}>
+            {building.name}
+          </Text>
+          {building.description ? (
+            <Text style={[styles.description, { color: muted }]} numberOfLines={2}>
+              {building.description}
+            </Text>
+          ) : null}
+        </View>
+        <TouchableOpacity
+          onPress={onClose}
+          style={styles.closeButton}
+          accessibilityRole="button"
+          accessibilityLabel={`Cerrar información de ${building.name}`}
+        >
+          <X size={24} color={muted} />
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {building.media && (
-          <Image source={{ uri: building.media }} style={styles.image} />
-        )}
-        
-        <View style={styles.infoSection}>
-          <View style={styles.detailItem}>
-            <Building size={16} color={COLORS.primary} />
-            <Text style={styles.description}>{building.description}</Text>
+      <View style={styles.chips}>
+        {building.floors ? (
+          <Chip
+            icon={Layers}
+            label={`${building.floors} ${building.floors === 1 ? 'planta' : 'plantas'}`}
+            color={theme.primary}
+            background={theme.primarySoft || '#e8f1fa'}
+          />
+        ) : null}
+        {building.isAccessible ? (
+          <Chip icon={Accessibility} label="Accesible" color={theme.success} background="#e8f5e9" />
+        ) : null}
+        <Chip
+          icon={DoorOpen}
+          label={building.availability ? 'Disponible' : 'No disponible'}
+          color={building.availability ? theme.success : theme.error}
+          background={building.availability ? '#e8f5e9' : '#fdecea'}
+        />
+        {frequency ? (
+          <Chip icon={Users} label={`Afluencia ${frequency}`} color={frequencyColor} background={theme.gray[100]} />
+        ) : null}
+      </View>
 
-          </View>
-          
-          <View style={styles.detailsContainer}>
-            {building.floors && (
-              <View style={styles.detailItem}>
-                <Layers size={16} color={COLORS.primary} />
-                <Text style={styles.detailText}>
-                  Cuenta con {building.floors} {building.floors === 1 ? 'planta' : 'plantas'}
-                </Text>
-              </View>
-            )}
-
-            {building.isAccessible && (
-              <View style={styles.detailItem}>
-                <Accessibility size={16} color={COLORS.success} />
-                <Text style={[styles.detailText, { color: COLORS.success }]}>
-                  Completamente accesible
-                </Text>
-              </View>
-            )}
-            {/* ✅ Datos adicionales */}
-            <View style={styles.detailItem}>
-              <DoorOpen size={16} color={COLORS.success} />
-              <Text style={[styles.detailText, { color: COLORS.success }]}>
-                {building.availability ? 'Disponible' : 'No disponible'}
+      {routeResult && (
+        <View
+          style={[styles.routeCard, { backgroundColor: theme.primarySoft || '#e8f1fa' }]}
+          accessible
+          accessibilityLabel={`Ruta: ${distance || ''}${duration ? `, ${duration}` : ''}${isAccessibleRoute ? ', ruta inclusiva activada' : ''}`}
+        >
+          <Footprints size={22} color={theme.primary} />
+          <View style={styles.routeText}>
+            <Text style={[styles.routeMain, { color: theme.primary }]}>
+              {isNavigating ? `Faltan ${distance}` : [distance, duration].filter(Boolean).join(' · ')}
+            </Text>
+            {isAccessibleRoute ? (
+              <Text style={[styles.routeSub, { color: theme.gray[800] }]}>
+                Ruta inclusiva: evita los tramos con escaleras o pendientes registrados.
               </Text>
-            </View>
-            {building.student_frequency && (
-              <View style={styles.detailItem}>
-                <ArrowUpNarrowWide size={16} color={
-                  building.student_frequency === "high"
-                    ? COLORS.error
-                    : building.student_frequency === "medium"
-                    ? COLORS.warning
-                    : COLORS.success
-                } />
-                <Text
-                  style={[
-                    styles.detailText,
-                    {
-                      color:
-                        building.student_frequency === "high"
-                          ? COLORS.error
-                          : building.student_frequency === "medium"
-                          ? COLORS.warning
-                          : COLORS.success,
-                    },
-                  ]}
-                >
-                  {building.student_frequency === "high" && "Alta frecuencia estudiantil"}
-                  {building.student_frequency === "medium" && "Frecuencia estudiantil moderada"}
-                  {building.student_frequency === "low" && "Frecuencia estudiantil baja"}
-                </Text>
-              </View>
+            ) : (
+              <Text style={[styles.routeSub, { color: theme.gray[800] }]}>Hasta la entrada del edificio</Text>
             )}
           </View>
-
-          {/* ✅ Baños por piso con ícono */}
-          {building.bathrooms &&
-            Object.keys(building.bathrooms).length > 0 &&
-            Object.values(building.bathrooms).some((value) => value === true) && (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>
-                  <Toilet size={16} color={COLORS.primary} /> Baños disponibles en:
-                </Text>
-
-                {Object.entries(building.bathrooms)
-                  .filter(([_, value]) => value === true)
-                  .map(([floor, _]) => (
-                    <View key={floor} style={styles.detailItem}>
-                      <Layers size={16} color={COLORS.primary} />
-                      <Text style={styles.detailText}>
-                        Planta {floor.replace("floor_", "")}
-                      </Text>
-                    </View>
-                  ))}
-              </View>
-          )}
-
-
-          {/* ✅ Instalaciones */}
-          {building.facilities && building.facilities.length > 0 && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>
-                Servicios:</Text>
-              {building.facilities.map((service, i) => (
-                <Text key={i} style={styles.text}><Library size={16} color={COLORS.primary} /> {service.name}</Text>
-              ))}
-            </View>
-          )}
-
-          {/* ✅ Carreras */}
-          {building.careers && building.careers.length > 0 && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Carreras asignadas:</Text>
-              {building.careers.map((career, i) => (
-                <Text key={i} style={styles.text}><GraduationCap size={16} color={COLORS.primary} />   {career.name}</Text>
-              ))}
-            </View>
-          )}
-
-
-          {/* ✅ Entradas con lógica contextual */}
-          {building.entrances && building.entrances.length > 0 && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>
-                {building.entrances.length === 1
-                  ? 'Este edificio cuenta con una única entrada:'
-                  : `Este edificio tiene ${building.entrances.length} entradas:`}
-              </Text>
-              {building.entrances.map((e, i) => (
-                <View key={i} style={{ marginBottom: 8 }}>
-                  {e.description && (
-                    <Text style={styles.text}>• {e.description}</Text>
-                  )}
-                  {e.location_hint && (
-                    <Text style={styles.text}>
-                      <Text style={{ fontWeight: 'bold' }}>Ubicado</Text> {e.location_hint}
-                    </Text>
-                  )}
-                </View>
-              ))}
-            </View>
-          )}
-
-          {/* ✅ Tipos de salones */}
-          {building.subjects && building.subjects.length > 0 && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Espacios académicos en este edificio:</Text>
-              {/* Agrupar por tipo de salón */}
-              {Array.from(
-                building.subjects.reduce((map, item) => {
-                  if (!map.has(item.type)) map.set(item.type, []);
-                  map.get(item.type).push(item);
-                  return map;
-                }, new Map())
-              ).map(([type, rooms], index) => (
-                <View key={index} style={{ marginBottom: 10 }}>
-                  {rooms.map((room, i) => (
-                    <Text key={i} style={styles.text}>
-                      •  {room.name} ({room.floor === 5 ? "Distribuidos por todo el edificio" : `Piso ${room.floor}`})
-                    </Text>
-                  ))}
-                </View>
-              ))}
-            </View>
-          )}
+          {isAccessibleRoute ? <Accessibility size={20} color={theme.primary} /> : null}
         </View>
+      )}
+
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        {building.media ? <Image source={{ uri: building.media }} style={styles.image} accessibilityIgnoresInvertColors /> : null}
+
+        {bathroomFloors.length > 0 && (
+          <Section icon={Toilet} title="Baños" color={theme.gray[800]}>
+            <Text style={[styles.text, { color: muted }]}>
+              {bathroomFloors.length === 1 ? 'Planta ' : 'Plantas '}
+              {bathroomFloors.join(', ')}
+            </Text>
+          </Section>
+        )}
+
+        {building.facilities && building.facilities.length > 0 && (
+          <Section icon={Library} title="Servicios" color={theme.gray[800]}>
+            {building.facilities.map((service, i) => (
+              <Text key={i} style={[styles.text, { color: muted }]}>• {service.name || service}</Text>
+            ))}
+          </Section>
+        )}
+
+        {building.careers && building.careers.length > 0 && (
+          <Section icon={GraduationCap} title="Carreras" color={theme.gray[800]}>
+            {building.careers.map((career, i) => (
+              <Text key={i} style={[styles.text, { color: muted }]}>• {career.name || career}</Text>
+            ))}
+          </Section>
+        )}
+
+        {building.entrances && building.entrances.length > 0 && (
+          <Section
+            icon={DoorOpen}
+            title={building.entrances.length === 1 ? 'Entrada' : `${building.entrances.length} entradas`}
+            color={theme.gray[800]}
+          >
+            {building.entrances.map((e, i) => (
+              <View key={i} style={styles.entrance}>
+                {e.description ? <Text style={[styles.text, { color: theme.gray[800] }]}>{e.description}</Text> : null}
+                {e.location_hint ? (
+                  <Text style={[styles.text, { color: muted }]}>Ubicación: {e.location_hint}</Text>
+                ) : null}
+              </View>
+            ))}
+          </Section>
+        )}
+
+        {building.subjects && building.subjects.length > 0 && (
+          <Section icon={Flag} title="Espacios académicos" color={theme.gray[800]}>
+            {building.subjects.map((room, i) => (
+              <Text key={i} style={[styles.text, { color: muted }]}>
+                • {room.name} ({room.floor === 5 ? 'distribuidos en el edificio' : `piso ${room.floor}`})
+              </Text>
+            ))}
+          </Section>
+        )}
       </ScrollView>
 
-      {isNavigating ? (
-        <TouchableOpacity style={[styles.routeButton, { backgroundColor: COLORS.error }]} onPress={onStopNavigation}>
-          <Text style={styles.routeButtonText}>Detener navegación</Text>
-        </TouchableOpacity>
-      ) : isFinished ? (
-        <TouchableOpacity style={[styles.routeButton, { backgroundColor: COLORS.success }]} onPress={onRoutePress}>
-          <Text style={styles.routeButtonText}>¡Llegaste! Recalcular</Text>
-        </TouchableOpacity>
-      ) : routeResult ? (
-        <TouchableOpacity style={[styles.routeButton, { backgroundColor: COLORS.success }]} onPress={onStartNavigation}>
-          <Text style={styles.routeButtonText}>Iniciar navegación</Text>
-        </TouchableOpacity>
-      ) : (
-        <TouchableOpacity style={styles.routeButton} onPress={onRoutePress}>
-          <Text style={styles.routeButtonText}>Cómo llegar</Text>
-        </TouchableOpacity>
-      )}
+      <View style={styles.actions}>
+        {isNavigating ? (
+          <PrimaryButton label="Detener navegación" onPress={onStopNavigation} color={theme.error} />
+        ) : isFinished ? (
+          <PrimaryButton label="Llegaste · Calcular de nuevo" onPress={onRoutePress} color={theme.success} />
+        ) : routeResult ? (
+          <PrimaryButton label="Iniciar navegación" icon={Navigation} onPress={onStartNavigation} color={theme.success} />
+        ) : (
+          <PrimaryButton label="Cómo llegar" icon={Footprints} onPress={onRoutePress} loading={isRouting} />
+        )}
+      </View>
     </View>
   );
 }
@@ -213,90 +224,112 @@ export default function BuildingInfoPanel({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.white,
-    borderTopLeftRadius: DIMENSIONS.borderRadius.xl,
-    borderTopRightRadius: DIMENSIONS.borderRadius.xl,
-    padding: 16,
+    paddingHorizontal: DIMENSIONS.spacing.lg,
+    paddingTop: DIMENSIONS.spacing.sm,
+  },
+  handle: {
+    width: 40,
+    height: 5,
+    borderRadius: 3,
+    alignSelf: 'center',
+    marginBottom: DIMENSIONS.spacing.sm,
   },
   header: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: DIMENSIONS.spacing.lg,
-    paddingVertical: DIMENSIONS.spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.gray[200],
+    alignItems: 'flex-start',
+  },
+  headerText: {
+    flex: 1,
+    paddingTop: 4,
   },
   title: {
-    fontSize: DIMENSIONS.fontSize.lg,
+    fontSize: DIMENSIONS.fontSize.xl,
     fontFamily: 'Roboto-Bold',
-    color: COLORS.primary,
-    flex: 1,
+  },
+  description: {
+    fontSize: DIMENSIONS.fontSize.sm,
+    fontFamily: 'Roboto-Regular',
+    marginTop: 2,
   },
   closeButton: {
-    padding: DIMENSIONS.spacing.xs,
+    width: MIN_TOUCH_TARGET,
+    height: MIN_TOUCH_TARGET,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: -10,
+  },
+  chips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: DIMENSIONS.spacing.sm,
+    marginTop: DIMENSIONS.spacing.md,
+  },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  chipText: {
+    marginLeft: 6,
+    fontSize: 13,
+    fontFamily: 'Roboto-Medium',
+  },
+  routeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: DIMENSIONS.borderRadius.lg,
+    padding: DIMENSIONS.spacing.md,
+    marginTop: DIMENSIONS.spacing.md,
+  },
+  routeText: {
+    flex: 1,
+    marginHorizontal: DIMENSIONS.spacing.md,
+  },
+  routeMain: {
+    fontSize: DIMENSIONS.fontSize.lg,
+    fontFamily: 'Roboto-Bold',
+  },
+  routeSub: {
+    fontSize: 13,
+    fontFamily: 'Roboto-Regular',
+    marginTop: 2,
   },
   content: {
     flex: 1,
+    marginTop: DIMENSIONS.spacing.sm,
   },
   image: {
     width: '100%',
-    height: 200,
+    height: 160,
     resizeMode: 'cover',
-    borderRadius: DIMENSIONS.borderRadius.md,
-    marginBottom: DIMENSIONS.spacing.md,
-  },
-  infoSection: {
-    paddingHorizontal: DIMENSIONS.spacing.lg,
-    paddingBottom: DIMENSIONS.spacing.xl,
-  },
-  description: {
-    fontSize: DIMENSIONS.fontSize.lg,
-    fontFamily: 'Roboto-Regular',
-    color: COLORS.gray[700],
-    marginLeft: DIMENSIONS.spacing.sm,
-  },
-  detailsContainer: {
-    marginBottom: DIMENSIONS.spacing.md,
-  },
-  detailItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: DIMENSIONS.spacing.sm,
-  },
-  detailText: {
-    fontSize: DIMENSIONS.fontSize.sm,
-    fontFamily: 'Roboto-Regular',
-    color: COLORS.gray[600],
-    marginLeft: DIMENSIONS.spacing.sm,
+    borderRadius: DIMENSIONS.borderRadius.lg,
+    marginTop: DIMENSIONS.spacing.sm,
   },
   section: {
-    marginBottom: DIMENSIONS.spacing.md,
+    marginTop: DIMENSIONS.spacing.md,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
   },
   sectionTitle: {
+    marginLeft: DIMENSIONS.spacing.sm,
     fontSize: DIMENSIONS.fontSize.md,
     fontFamily: 'Roboto-Medium',
-    color: COLORS.gray[800],
-    marginBottom: DIMENSIONS.spacing.sm,
   },
   text: {
     fontSize: DIMENSIONS.fontSize.sm,
     fontFamily: 'Roboto-Regular',
-    color: COLORS.gray[600],
-    marginLeft: DIMENSIONS.spacing.sm,
-    marginBottom: DIMENSIONS.spacing.xs,
+    lineHeight: 20,
+    marginLeft: 24,
   },
-  routeButton: {
-    backgroundColor: COLORS.primary,
-    marginHorizontal: DIMENSIONS.spacing.lg,
-    marginVertical: DIMENSIONS.spacing.md,
-    borderRadius: DIMENSIONS.borderRadius.md,
-    padding: DIMENSIONS.spacing.md,
-    alignItems: 'center',
+  entrance: {
+    marginBottom: 6,
   },
-  routeButtonText: {
-    color: COLORS.white,
-    fontSize: DIMENSIONS.fontSize.md,
-    fontFamily: 'Roboto-Medium',
+  actions: {
+    paddingTop: DIMENSIONS.spacing.sm,
   },
 });

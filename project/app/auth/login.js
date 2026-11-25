@@ -1,21 +1,26 @@
-import { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
+import { useRef, useState } from 'react';
+import { Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { serviceContainer } from '../../src/infrastructure/di/ServiceContainer';
-import { COLORS } from '../../src/core/constants/colors';
 import { DIMENSIONS } from '../../src/core/constants/dimensions';
+import { MIN_TOUCH_TARGET } from '../../src/core/constants/colors';
+import { useTheme } from '../../src/core/context/ThemeContext';
+import AuthLayout from '../../src/presentation/components/AuthLayout';
+import FormField from '../../src/presentation/components/FormField';
+import PrimaryButton from '../../src/presentation/components/PrimaryButton';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const passwordRef = useRef(null);
   const router = useRouter();
+  const { theme } = useTheme();
   const authUseCases = serviceContainer.get('authUseCases');
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
-      Alert.alert('Error', 'Por favor completa todos los campos');
+      Alert.alert('Faltan datos', 'Escribe tu correo y tu contraseña.');
       return;
     }
 
@@ -24,7 +29,7 @@ export default function LoginScreen() {
       await authUseCases.login(email.trim(), password);
       router.replace('/(main)');
     } catch (error) {
-      Alert.alert('Error', error.message);
+      Alert.alert('No se pudo iniciar sesión', error.message);
     } finally {
       setIsLoading(false);
     }
@@ -35,126 +40,71 @@ export default function LoginScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.keyboardView}
+    <AuthLayout title="Inicia sesión" subtitle="Usa el correo con el que te registraste.">
+      <FormField
+        label="Correo electrónico"
+        placeholder="nombre@correo.com"
+        value={email}
+        onChangeText={setEmail}
+        keyboardType="email-address"
+        autoCapitalize="none"
+        autoComplete="email"
+        textContentType="emailAddress"
+        returnKeyType="next"
+        onSubmitEditing={() => passwordRef.current?.focus()}
+        editable={!isLoading}
+      />
+
+      <FormField
+        ref={passwordRef}
+        label="Contraseña"
+        value={password}
+        onChangeText={setPassword}
+        secureTextEntry
+        autoComplete="password"
+        textContentType="password"
+        returnKeyType="go"
+        onSubmitEditing={handleLogin}
+        editable={!isLoading}
+      />
+
+      <PrimaryButton
+        label="Iniciar sesión"
+        onPress={handleLogin}
+        loading={isLoading}
+        style={styles.submit}
+      />
+
+      <TouchableOpacity
+        style={styles.linkButton}
+        onPress={goToRegister}
+        disabled={isLoading}
+        accessibilityRole="link"
+        accessibilityLabel="¿No tienes cuenta? Regístrate"
       >
-        <View style={styles.content}>
-          <View style={styles.logoContainer}>
-            <Text style={styles.logoText}>Instituto</Text>
-            <Text style={styles.logoSubtext}>Mini-Mapa</Text>
-          </View>
-
-          <View style={styles.formContainer}>
-            <TextInput
-              style={styles.input}
-              placeholder="Correo electrónico"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              editable={!isLoading}
-            />
-
-            <TextInput
-              style={styles.input}
-              placeholder="Contraseña"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              editable={!isLoading}
-            />
-
-            <TouchableOpacity 
-              style={[styles.button, isLoading && styles.buttonDisabled]}
-              onPress={handleLogin}
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <ActivityIndicator color={COLORS.white} />
-              ) : (
-                <Text style={styles.buttonText}>Iniciar Sesión</Text>
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={styles.linkButton}
-              onPress={goToRegister}
-              disabled={isLoading}
-            >
-              <Text style={styles.linkText}>¿No tienes cuenta? Regístrate</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+        <Text style={[styles.linkText, { color: theme.gray[700] }]}>
+          ¿No tienes cuenta? <Text style={[styles.linkStrong, { color: theme.primary }]}>Regístrate</Text>
+        </Text>
+      </TouchableOpacity>
+    </AuthLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.white,
-  },
-  keyboardView: {
-    flex: 1,
-  },
-  content: {
-    flex: 1,
-    padding: DIMENSIONS.spacing.lg,
-    justifyContent: 'center',
-  },
-  logoContainer: {
-    alignItems: 'center',
-    marginBottom: DIMENSIONS.spacing.xxl,
-  },
-  logoText: {
-    fontSize: DIMENSIONS.fontSize.xxxl,
-    fontFamily: 'Roboto-Bold',
-    color: COLORS.primary,
-    marginBottom: DIMENSIONS.spacing.xs,
-  },
-  logoSubtext: {
-    fontSize: DIMENSIONS.fontSize.lg,
-    fontFamily: 'Roboto-Regular',
-    color: COLORS.gray[600],
-  },
-  formContainer: {
-    marginBottom: DIMENSIONS.spacing.xl,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: COLORS.gray[300],
-    borderRadius: DIMENSIONS.borderRadius.md,
-    padding: DIMENSIONS.spacing.md,
-    marginBottom: DIMENSIONS.spacing.md,
-    fontSize: DIMENSIONS.fontSize.md,
-    fontFamily: 'Roboto-Regular',
-    backgroundColor: COLORS.white,
-  },
-  button: {
-    backgroundColor: COLORS.primary,
-    borderRadius: DIMENSIONS.borderRadius.md,
-    padding: DIMENSIONS.spacing.md,
-    alignItems: 'center',
-    marginBottom: DIMENSIONS.spacing.md,
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonText: {
-    color: COLORS.white,
-    fontSize: DIMENSIONS.fontSize.md,
-    fontFamily: 'Roboto-Medium',
+  submit: {
+    marginTop: DIMENSIONS.spacing.sm,
   },
   linkButton: {
+    minHeight: MIN_TOUCH_TARGET,
     alignItems: 'center',
-    padding: DIMENSIONS.spacing.sm,
+    justifyContent: 'center',
+    marginTop: DIMENSIONS.spacing.md,
   },
   linkText: {
-    color: COLORS.primary,
     fontSize: DIMENSIONS.fontSize.sm,
     fontFamily: 'Roboto-Regular',
-  }
+  },
+  linkStrong: {
+    fontFamily: 'Roboto-Bold',
+  },
 });

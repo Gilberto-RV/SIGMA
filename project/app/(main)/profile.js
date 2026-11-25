@@ -3,25 +3,40 @@ import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
   Alert,
   Image,
-  TextInput,
+  ScrollView,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { COLORS } from '../../src/core/constants/colors';
+import { LogOut, Trash2 } from 'lucide-react-native';
 import { DIMENSIONS } from '../../src/core/constants/dimensions';
 import { serviceContainer } from '../../src/infrastructure/di/ServiceContainer';
-import { useAuth } from '../../src/hooks/useAuth'
+import { useAuth } from '../../src/hooks/useAuth';
+import { useTheme } from '../../src/core/context/ThemeContext';
+import MapHeader from '../../src/presentation/components/MapHeader';
+import FormField from '../../src/presentation/components/FormField';
+import PrimaryButton from '../../src/presentation/components/PrimaryButton';
+import { initialFor } from '../../src/presentation/components/CustomDrawerContent';
+
+const ROLE_LABELS = {
+  estudiante: 'Estudiante',
+  profesor: 'Profesor',
+  administrador: 'Administrador',
+};
 
 export default function ProfileScreen() {
   const [user, setUser] = useState(null);
   const [editableUser, setEditableUser] = useState(null);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [avatarFailed, setAvatarFailed] = useState(false);
   const router = useRouter();
+  const { theme } = useTheme();
   const authUseCases = serviceContainer.get('authUseCases');
-  const { logout, updateProfile, changePassword, deleteAccount } = useAuth();
+  const { updateProfile, changePassword, deleteAccount } = useAuth();
 
   useEffect(() => {
     loadUser();
@@ -33,6 +48,7 @@ export default function ProfileScreen() {
       if (currentUser) {
         setUser(currentUser);
         setEditableUser({ ...currentUser, password: '', currentPassword: '' }); // No mostrar password real
+        setAvatarFailed(false);
       } else {
         router.replace('/auth');
       }
@@ -44,10 +60,10 @@ export default function ProfileScreen() {
   };
 
   const handleLogout = () => {
-    Alert.alert('Cerrar Sesión', '¿Estás seguro que deseas cerrar sesión?', [
+    Alert.alert('Cerrar sesión', '¿Seguro que quieres cerrar sesión?', [
       { text: 'Cancelar', style: 'cancel' },
       {
-        text: 'Cerrar Sesión',
+        text: 'Cerrar sesión',
         style: 'destructive',
         onPress: async () => {
           try {
@@ -56,6 +72,25 @@ export default function ProfileScreen() {
           } catch (error) {
             console.error('Error al cerrar sesión:', error);
             Alert.alert('Error', 'No se pudo cerrar la sesión');
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleDeleteAccount = () => {
+    Alert.alert('Eliminar cuenta', 'Se borrará tu cuenta y no podrás recuperarla. ¿Continuar?', [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Eliminar',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await deleteAccount();
+            router.replace('/auth');
+          } catch (error) {
+            console.error('Error al eliminar cuenta:', error);
+            Alert.alert('Error', 'No se pudo eliminar la cuenta');
           }
         },
       },
@@ -77,7 +112,7 @@ export default function ProfileScreen() {
       if (newPassword) {
         await changePassword(editableUser.currentPassword, newPassword);
       }
-      Alert.alert('Éxito', 'Perfil actualizado correctamente');
+      Alert.alert('Listo', 'Tu perfil se actualizó.');
       await loadUser();
     } catch (error) {
       console.error('Error al actualizar perfil:', error);
@@ -87,99 +122,95 @@ export default function ProfileScreen() {
     }
   };
 
-
-  if (!editableUser) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <Text>Cargando perfil...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  const showAvatarImage = Boolean(editableUser?.avatar) && !avatarFailed;
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.content}>
-        <View style={styles.avatarContainer}>
-          <Image
-            source={{ uri: editableUser.avatar }}
-            style={styles.avatarImage}
-          />
-          <TextInput
-            placeholder="URL del avatar"
-            value={editableUser.avatar}
-            onChangeText={(text) => setEditableUser({ ...editableUser, avatar: text })}
-            style={styles.input}
-          />
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+      <MapHeader title="Mi perfil" />
+
+      {!editableUser ? (
+        <View style={styles.loadingContainer} accessibilityRole="progressbar" accessibilityLabel="Cargando perfil">
+          <ActivityIndicator size="large" color={theme.primary} />
+          <Text style={[styles.loadingText, { color: theme.gray[700] }]}>Cargando perfil…</Text>
         </View>
+      ) : (
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
+          <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+            <View style={styles.identity}>
+              <View style={[styles.avatar, { backgroundColor: theme.primarySoft || '#e8f1fa' }]}>
+                {showAvatarImage ? (
+                  <Image
+                    source={{ uri: editableUser.avatar }}
+                    style={styles.avatarImage}
+                    onError={() => setAvatarFailed(true)}
+                    accessibilityLabel="Foto de perfil"
+                  />
+                ) : (
+                  <Text style={[styles.avatarInitial, { color: theme.primary }]}>{initialFor(user)}</Text>
+                )}
+              </View>
+              <Text style={[styles.email, { color: theme.text }]} numberOfLines={1}>{user?.email}</Text>
+              <View style={[styles.roleBadge, { backgroundColor: theme.primarySoft || '#e8f1fa' }]}>
+                <Text style={[styles.roleText, { color: theme.primary }]}>{ROLE_LABELS[user?.role] || user?.role}</Text>
+              </View>
+            </View>
 
-        <View style={styles.infoContainer}>
-          <Text style={styles.label}>Email</Text>
-          <Text style={styles.disabledInput}>{editableUser.email}</Text>
-
-          <Text style={styles.label}>Rol</Text>
-          <Text style={styles.disabledInput}>{editableUser.role}</Text>
-
-          <Text style={styles.label}>Contraseña actual</Text>
-          <TextInput
-            placeholder="Necesaria solo para cambiar la contraseña"
-            secureTextEntry
-            value={editableUser.currentPassword}
-            onChangeText={(text) => setEditableUser({ ...editableUser, currentPassword: text })}
-            style={styles.input}
-          />
-
-          <Text style={styles.label}>Nueva Contraseña</Text>
-          <TextInput
-            placeholder="••••••••"
-            secureTextEntry
-            value={editableUser.password}
-            onChangeText={(text) => setEditableUser({ ...editableUser, password: text })}
-            style={styles.input}
-          />
-        </View>
-
-        <View style={styles.actionsContainer}>
-          <TouchableOpacity
-            style={styles.updateButton}
-            onPress={handleUpdateProfile}
-            disabled={isUpdating}
-          >
-            <Text style={styles.updateButtonText}>
-              {isUpdating ? 'Actualizando...' : 'Actualizar Perfil'}
+            <Text style={[styles.sectionTitle, { color: theme.gray[800] }]} accessibilityRole="header">
+              Foto de perfil
             </Text>
-          </TouchableOpacity>
+            <FormField
+              label="Enlace de la imagen"
+              hint="Una URL que termine en .jpg o .png"
+              placeholder="https://…/foto.jpg"
+              value={editableUser.avatar || ''}
+              onChangeText={(text) => {
+                setAvatarFailed(false);
+                setEditableUser({ ...editableUser, avatar: text });
+              }}
+              autoCapitalize="none"
+              keyboardType="url"
+            />
 
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-            <Text style={styles.logoutButtonText}>Cerrar Sesión</Text>
-          </TouchableOpacity>
+            <Text style={[styles.sectionTitle, { color: theme.gray[800] }]} accessibilityRole="header">
+              Cambiar contraseña
+            </Text>
+            <FormField
+              label="Contraseña actual"
+              hint="Solo es necesaria si vas a cambiar la contraseña"
+              secureTextEntry
+              autoComplete="password"
+              value={editableUser.currentPassword}
+              onChangeText={(text) => setEditableUser({ ...editableUser, currentPassword: text })}
+            />
+            <FormField
+              label="Nueva contraseña"
+              secureTextEntry
+              autoComplete="new-password"
+              value={editableUser.password}
+              onChangeText={(text) => setEditableUser({ ...editableUser, password: text })}
+            />
 
-          <TouchableOpacity
-            style={[styles.logoutButton, { backgroundColor: COLORS.black }]}
-            onPress={() => {
-              Alert.alert('Eliminar Cuenta', '¿Estás seguro que deseas eliminar tu cuenta?', [
-                { text: 'Cancelar', style: 'cancel' },
-                {
-                  text: 'Eliminar',
-                  style: 'destructive',
-                  onPress: async () => {
-                    try {
-                      await deleteAccount();
-                      router.replace('/auth');
-                    } catch (error) {
-                      console.error('Error al eliminar cuenta:', error);
-                      Alert.alert('Error', 'No se pudo eliminar la cuenta');
-                    }
-                  },
-                },
-              ]);
-            }}
-          >
-            <Text style={styles.logoutButtonText}>Eliminar Cuenta</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+            <PrimaryButton
+              label="Guardar cambios"
+              onPress={handleUpdateProfile}
+              loading={isUpdating}
+              style={styles.saveButton}
+            />
+
+            <View style={[styles.divider, { backgroundColor: theme.gray[200] }]} />
+
+            <PrimaryButton label="Cerrar sesión" icon={LogOut} variant="outline" onPress={handleLogout} />
+            <PrimaryButton
+              label="Eliminar cuenta"
+              icon={Trash2}
+              variant="danger-text"
+              onPress={handleDeleteAccount}
+              accessibilityHint="Pide confirmación antes de borrar la cuenta"
+              style={styles.deleteButton}
+            />
+          </ScrollView>
+        </KeyboardAvoidingView>
+      )}
     </SafeAreaView>
   );
 }
@@ -187,85 +218,73 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.white,
   },
-  content: {
+  flex: {
     flex: 1,
-    padding: DIMENSIONS.spacing.lg,
-    alignItems: 'center',
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  avatarContainer: {
-    marginTop: DIMENSIONS.spacing.xxl,
-    marginBottom: DIMENSIONS.spacing.lg,
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    fontFamily: 'Roboto-Regular',
+  },
+  content: {
+    padding: DIMENSIONS.spacing.lg,
+    paddingBottom: DIMENSIONS.spacing.xxl,
+  },
+  identity: {
     alignItems: 'center',
+    marginBottom: DIMENSIONS.spacing.lg,
+  },
+  avatar: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    marginBottom: DIMENSIONS.spacing.md,
   },
   avatarImage: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    marginBottom: DIMENSIONS.spacing.md,
-  },
-  infoContainer: {
     width: '100%',
-    marginBottom: DIMENSIONS.spacing.xxl,
+    height: '100%',
   },
-  label: {
-    fontSize: DIMENSIONS.fontSize.sm,
-    fontFamily: 'Roboto-Medium',
-    marginTop: DIMENSIONS.spacing.sm,
-    color: COLORS.gray[700],
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: COLORS.gray[300],
-    borderRadius: DIMENSIONS.borderRadius.md,
-    padding: DIMENSIONS.spacing.sm,
-    fontSize: DIMENSIONS.fontSize.md,
-    marginBottom: DIMENSIONS.spacing.sm,
-  },
-  disabledInput: {
-    paddingVertical: DIMENSIONS.spacing.sm,
-    fontSize: DIMENSIONS.fontSize.md,
-    color: COLORS.gray[600],
-  },
-  pickerContainer: {
-    borderWidth: 1,
-    borderColor: COLORS.gray[300],
-    borderRadius: DIMENSIONS.borderRadius.md,
-    overflow: 'hidden',
-    marginBottom: DIMENSIONS.spacing.sm,
-  },
-  actionsContainer: {
-    width: '100%',
-    marginTop: DIMENSIONS.spacing.sm,
-  },
-  updateButton: {
-    backgroundColor: COLORS.primary,
-    borderRadius: DIMENSIONS.borderRadius.md,
-    padding: DIMENSIONS.spacing.md,
-    alignItems: 'center',
-    marginBottom: DIMENSIONS.spacing.md,
-  },
-  updateButtonText: {
-    color: COLORS.white,
-    fontSize: DIMENSIONS.fontSize.md,
+  avatarInitial: {
+    fontSize: 40,
     fontFamily: 'Roboto-Bold',
   },
-  logoutButton: {
-    backgroundColor: COLORS.error,
-    borderRadius: DIMENSIONS.borderRadius.md,
-    padding: DIMENSIONS.spacing.md,
-    alignItems: 'center',
-    marginBottom: DIMENSIONS.spacing.md,
-  },
-  logoutButtonText: {
-    color: COLORS.white,
-    fontSize: DIMENSIONS.fontSize.md,
+  email: {
+    fontSize: DIMENSIONS.fontSize.lg,
     fontFamily: 'Roboto-Medium',
+  },
+  roleBadge: {
+    marginTop: DIMENSIONS.spacing.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  roleText: {
+    fontSize: 13,
+    fontFamily: 'Roboto-Medium',
+  },
+  sectionTitle: {
+    fontSize: DIMENSIONS.fontSize.md,
+    fontFamily: 'Roboto-Bold',
+    marginTop: DIMENSIONS.spacing.md,
+    marginBottom: DIMENSIONS.spacing.sm,
+  },
+  saveButton: {
+    marginTop: DIMENSIONS.spacing.sm,
+  },
+  divider: {
+    height: 1,
+    marginVertical: DIMENSIONS.spacing.lg,
+  },
+  deleteButton: {
+    marginTop: DIMENSIONS.spacing.sm,
   },
 });
